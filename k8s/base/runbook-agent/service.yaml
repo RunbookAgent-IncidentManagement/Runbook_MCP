@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: runbook-agent
+spec:
+  selector:
+    app: runbook-agent
+  ports:
+  - port: 80
+    targetPort: 8000
+  type: ClusterIP

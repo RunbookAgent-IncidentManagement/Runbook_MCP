@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cart-service-config
+data:
+  LOG_LEVEL: "INFO"
+  SERVICE_NAME: "cart-service"

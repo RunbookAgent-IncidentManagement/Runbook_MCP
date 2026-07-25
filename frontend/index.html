@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AuraCommerce — Luxury E-Commerce</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,600;1,400&family=Manrope:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            serif: ['"Cormorant Garamond"', 'Georgia', 'serif'],
+            sans: ['"Manrope"', 'system-ui', 'sans-serif'],
+          },
+          colors: {
+            ink: '#060a14',
+            surface: '#0b1120',
+            panel: '#0f172a',
+            mist: '#a1a6b8',
+            pearl: '#f0f0f4',
+            gold: '#c9a96e',
+            goldLight: '#dccca6',
+            rose: '#e8b8a8',
+            sage: '#b8d4c0',
+            coral: '#e8745a',
+            coralSoft: '#f0a688',
+            tealDeep: '#1a6b5e',
+            tealSoft: '#2a9d8f',
+          },
+          animation: {
+            'fade-up': 'fadeUp 0.9s ease-out both',
+            'fade-in': 'fadeIn 1.2s ease-out both',
+            'slide-up': 'slideUp 0.7s ease-out both',
+            'float': 'float 6s ease-in-out infinite',
+          },
+          keyframes: {
+            fadeUp: {
+              '0%': { opacity: '0', transform: 'translateY(30px)' },
+              '100%': { opacity: '1', transform: 'translateY(0)' },
+            },
+            fadeIn: {
+              '0%': { opacity: '0' },
+              '100%': { opacity: '1' },
+            },
+            slideUp: {
+              '0%': { opacity: '0', transform: 'translateY(20px)' },
+              '100%': { opacity: '1', transform: 'translateY(0)' },
+            },
+            float: {
+              '0%, 100%': { transform: 'translateY(0)' },
+              '50%': { transform: 'translateY(-10px)' },
+            },
+          },
+        }
+      }
+    }
+  </script>
+  <style>
+    html { scroll-behavior: smooth; }
+    body { background-color: #060a14; color: #e8eaf0; font-family: 'Manrope', system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+    ::selection { background: rgba(201, 169, 110, 0.25); color: #fff; }
+    .glass {
+      background: rgba(255,255,255,0.03);
+      backdrop-filter: blur(20px) saturate(140%);
+      -webkit-backdrop-filter: blur(20px) saturate(140%);
+      border: 1px solid rgba(255,255,255,0.05);
+    }
+    .glass-hover:hover {
+      background: rgba(255,255,255,0.06);
+      border-color: rgba(255,255,255,0.12);
+    }
+    .text-gradient-gold {
+      background: linear-gradient(135deg, #dccca6 0%, #c9a96e 50%, #a67c3d 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .gold-glow {
+      box-shadow: 0 0 40px rgba(201,169,110,0.15), 0 0 80px rgba(201,169,110,0.08);
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col selection:bg-gold/25">
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
+</body>
+</html>
