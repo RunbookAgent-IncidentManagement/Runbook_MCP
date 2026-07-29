@@ -2,7 +2,7 @@
 """
 Concrete Event-Driven Wiring: SQS Consumer + EventBridge Integration
 Connects business events (order.confirmed, payment.processed, incident.detected)
-to the AI Agent pipeline via notification-service event endpoint.
+to the Runbook Agent pipeline via notification-service event endpoint.
 """
 import json
 import time
@@ -12,8 +12,7 @@ import requests
 NOTIFICATION_SERVICE = "http://notification-service:8000"
 ORDER_SERVICE = "http://order-service:8000"
 PAYMENT_SERVICE = "http://payment-service:8000"
-RCA_AGENT = "http://rca-agent-service:8000"
-RUNBOOK_AGENT = "http://runbook-agent-service:8001"
+RUNBOOK_RUNNER = "http://runbook-runner:8000"
 
 EVENT_TYPES = [
     "order.created",
@@ -62,18 +61,17 @@ def simulate_order_flow():
     publish_event("incident.detected", {
         "service": "payment-service",
         "alert_name": "payment-service-health-failed",
+        "runbook_id": "RB-001",
         "metrics": {"cpu_percent": 92.5, "memory_percent": 88.1},
         "k8s_events": ["Liveness probe failed", "Back-off restarting failed container"],
-        "deployment_history": ["Revision 2 (v2.0.0-broken)"],
     }, "cloudwatch-alarm")
 
 
 if __name__ == "__main__":
     print("Concrete event-driven wiring demonstration:")
     print(f"  Notification Service: {NOTIFICATION_SERVICE}")
-    print(f"  RCA Agent: {RCA_AGENT}")
-    print(f"  Runbook Agent: {RUNBOOK_AGENT}")
+    print(f"  Runbook Runner: {RUNBOOK_RUNNER}")
     print()
     simulate_order_flow()
     print()
-    print("Event flow completed. Check notification-service logs for 'agent_pipeline_triggered' and 'RCA_AGENT_RESULT' entries.")
+    print("Event flow completed. Check notification-service logs for 'agent_pipeline_triggered' entries.")

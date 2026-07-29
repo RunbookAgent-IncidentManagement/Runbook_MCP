@@ -29,3 +29,21 @@ The "AWS config" (vite.config.docker.js) uses Docker service names:
   /cart -> cart-service:8000
   /orders -> order-service:8000
   /auth -> auth-service:8000
+
+======================================================
+AWS FREE TIER (K3s + LangGraph + MCP) AUTOMATED RUN
+======================================================
+Detailed Step-by-Step Agentic Demonstration Guide:
+  See docs/AGENT_DEMO_GUIDE.md
+
+To start the entire environment with a single command on your EC2 instance:
+  chmod +x scripts/setup_free_tier.sh scripts/stop_free_tier.sh
+  ./scripts/setup_free_tier.sh
+
+To run quick agentic pipeline smoke test:
+  python3 scripts/test_agent_pipeline.py
+
+To stop all services and free up memory when closing for the day:
+  ./scripts/stop_free_tier.sh
+
+

@@ -80,36 +80,22 @@ def consume_business_event(event: dict):
                 "status": "analyzing",
                 "human_escalated": False,
             }
-            # Local Kubernetes endpoint (Docker Compose / EKS)
+            # Route incident event directly to Runbook Runner / Agent
+            runbook_payload = {
+                "event_type": event_type,
+                "service": service,
+                "payload": payload
+            }
             resp = requests.post(
-                "http://rca-agent-service:8000/analyze",
-                json=rca_payload,
+                "http://runbook-runner:8000/execute",
+                json=runbook_payload,
                 timeout=30,
                 headers={"Content-Type": "application/json"}
             )
-            rca_result = resp.json()
-            logger.info(f"RCA_AGENT_RESULT: status={rca_result.get('status')}, category={rca_result.get('incident_category')}, severity={rca_result.get('severity')}, confidence={rca_result.get('confidence')}, runbook={rca_result.get('recommended_runbook')}")
-            # If runbook recommended and confidence sufficient, trigger Runbook Agent
-            runbook_id = rca_result.get("recommended_runbook")
-            confidence = rca_result.get("confidence", 0.0)
-            if runbook_id and confidence >= 0.7 and rca_result.get("status") != "escalated":
-                try:
-                    rb_resp = requests.post(
-                        "http://runbook-agent-service:8001/execute",
-                        json={
-                            "runbook_id": runbook_id,
-                            "incident_details": rca_result,
-                            "service": service,
-                        },
-                        timeout=60,
-                        headers={"Content-Type": "application/json"},
-                    )
-                    rb_result = rb_resp.json()
-                    logger.info(f"RUNBOOK_AGENT_RESULT: status={rb_result.get('status')}, actions={rb_result.get('actions_executed', [])}, verification={rb_result.get('verification_result')}, escalated={rb_result.get('escalation_required')}")
-                except Exception as exc:
-                    logger.error(f"RUNBOOK_AGENT_CALL_FAILED: {exc}")
+            rb_result = resp.json()
+            logger.info(f"RUNBOOK_RESULT: {rb_result}")
         except Exception as exc:
-            logger.error(f"RCA_AGENT_CALL_FAILED: {exc}")
+            logger.error(f"RUNBOOK_RUNNER_CALL_FAILED: {exc}")
         return {
             "action": "agent_pipeline_triggered",
             "event_type": event_type,

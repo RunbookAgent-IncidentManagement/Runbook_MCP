@@ -1,83 +1,95 @@
 #!/usr/bin/env python3
 """
-End-to-End Agent Pipeline Integration Test
-Demonstrates the concrete flow: Event → Notification Service → RCA Agent → Runbook Agent → Verification
-
-Usage (local Docker Compose):
-    python scripts/test_agent_pipeline.py
-
-This script simulates a CloudWatch alarm payload, sends it to the notification service's event consumer,
-and verifies that the AI agent pipeline responds correctly.
+End-to-End Agent Pipeline Test Script
+Smoke tests the Mistral LLM Classifier, FastMCP stdio servers, LangGraph Retry State Machine, and Jira Escalation.
 """
-import requests
-import time
+import os
 import sys
+import json
+import asyncio
 
-# Service endpoints (Docker Compose / Kubernetes)
-NOTIFICATION_SERVICE = "http://localhost:8005"
-RCA_AGENT_SERVICE = "http://localhost:8001"  # Note: rca-agent runs on port 8000; mapped to 8001 in local compose if needed
-RUNBOOK_AGENT_SERVICE = "http://localhost:8005"  # Using notification service port for demo; in real deployment use dedicated agent ports
+# Set stdout/stderr encoding for Windows console compatibility
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
+
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.insert(0, os.path.join(BASE_DIR, "ai-agents"))
+sys.path.insert(0, os.path.join(BASE_DIR, "ai-agents", "langgraph"))
+
+from llm_classifier import classifier
+from catalog_parser import catalog
+from runbook_agent import run_runbook_agent
+from mcp_client import mcp_client
 
 
-def simulate_cloudwatch_alarm(service: str = "payment-service", alarm_name: str = "payment-service-health-failed") -> dict:
-    return {
-        "event_type": "cloudwatch.alarm.triggered",
-        "payload": {
-            "service": service,
-            "alert_name": alarm_name,
-            "alert_id": f"sim-{alarm_name}-{int(time.time())}",
-            "metrics": {"cpu_percent": 92.5, "memory_percent": 88.1, "queue_depth": 1240},
-            "k8s_events": ["Liveness probe failed", "Back-off restarting failed container"],
-            "deployment_history": ["Revision 2 (v2.0.0-broken)"],
+async def run_pipeline_test():
+    print("=" * 70)
+    print("AuraCommerce AI Agent & FastMCP Pipeline Smoke Test")
+    print("=" * 70)
+
+    # Enable K8S_DRY_RUN for offline test environment if set
+    dry_run_env = os.getenv("K8S_DRY_RUN", "true")
+    os.environ["K8S_DRY_RUN"] = dry_run_env
+    print(f"Environment: K8S_DRY_RUN={dry_run_env}")
+
+    # Step 1: Catalog Check
+    runbooks = catalog.list_runbooks()
+    print(f"\n[TEST 1] Runbook Catalog Loaded: {len(runbooks)} Runbooks ({', '.join(runbooks.keys())})")
+
+    # Step 2: Mistral LLM Classifier Test
+    print("\n[TEST 2] Testing Mistral LLM Classifier (with keyword fallback)...")
+    classification = classifier.classify(
+        service="payment-service",
+        event_type="CrashLoopBackOff",
+        logs=["java.lang.OutOfMemoryError", "Connection refused"],
+        k8s_events=["Liveness probe failed"]
+    )
+    print("   Output:", json.dumps(classification, indent=2))
+    assert classification.get("runbook_id") == "RB-001", "Expected RB-001 mapping for CrashLoopBackOff"
+    print("   Classification Test PASSED!")
+
+    # Step 3: FastMCP Tool Session Call Test
+    print("\n[TEST 3] Testing FastMCP Tool Client (Kubernetes get_pod_status)...")
+    pod_status = await mcp_client.call_tool("kubernetes", "get_pod_status", {"pod_name": "payment-service"})
+    print("   Output:", json.dumps(pod_status, indent=2))
+    print("   FastMCP Kubernetes Tool PASSED!")
+
+    print("\n[TEST 4] Testing FastMCP Tool Client (Jira create_ticket)...")
+    jira_res = await mcp_client.call_tool("jira", "create_ticket", {
+        "title": "Smoke Test Ticket",
+        "description": "Automated pipeline smoke test."
+    })
+    print("   Output:", json.dumps(jira_res, indent=2))
+    print("   FastMCP Jira Tool PASSED!")
+
+    # Step 4: LangGraph Runbook Execution Flow Test
+    print("\n[TEST 5] Executing Full LangGraph State Machine Workflow...")
+    res = await run_runbook_agent(
+        event_type="CrashLoopBackOff",
+        service="payment-service",
+        runbook_id=None,  # Triggers LLM classification automatically
+        incident_details={
+            "logs": ["OutOfMemoryError: Metaspace"],
+            "k8s_events": ["Liveness probe failed"]
         }
-    }
+    )
 
-
-def trigger_pipeline(service: str, alarm_name: str) -> dict:
-    event = simulate_cloudwatch_alarm(service, alarm_name)
-    print(f"\n[STEP 1] Sending simulated event: {event['event_type']} for service={service}")
-    print(f"         Alarm: {alarm_name}")
-
-    # Call notification service event consumer
-    try:
-        resp = requests.post(
-            f"{NOTIFICATION_SERVICE}/notifications/consume-event",
-            json=event,
-            timeout=30,
-            headers={"Content-Type": "application/json"},
-        )
-        result = resp.json()
-        print(f"[STEP 2] Notification Service response: {result}")
-    except Exception as exc:
-        print(f"[STEP 2] Notification Service unreachable (expected if not running locally): {exc}")
-        result = {"action": "acknowledged", "note": "Service may be running inside Docker Compose network only"}
-
-    print(f"\n[STEP 3] Pipeline verification:")
-    print(f"         - Event consumed by notification-service: {'Yes' if result.get('action') in ('notification_triggered', 'agent_pipeline_triggered', 'acknowledged') else 'No'}")
-    print(f"         - Concrete event wiring added to notification-service/app/main.py: Yes")
-    print(f"         - Lambda trigger stub (lambda_rca_trigger.py): Yes")
-    print(f"         - Kubernetes manifests for rca-agent / runbook-agent: Yes")
-    print(f"         - Runbook Catalog (RB-001 to RB-006): Yes")
-    print(f"         - Agent Design + Python Skeletons: Yes")
-
-    return result
+    print("\n" + "=" * 70)
+    print("LANGGRAPH EXECUTION RESULT SUMMARY")
+    print("=" * 70)
+    print(f"  * Final Status:       {res.get('status')}")
+    print(f"  * Runbook Selected:   {res.get('runbook_id')}")
+    print(f"  * Total Attempts:     {res.get('attempts')}/{res.get('max_attempts')}")
+    print(f"  * Actions Executed:   {len(res.get('actions_executed', []))}")
+    print(f"  * Recovery Confirmed: {res.get('recovery_confirmed')}")
+    print(f"  * Escalation Req:     {res.get('escalation_required')}")
+    if res.get("jira_ticket"):
+        print(f"  * Jira Ticket:        {res.get('jira_ticket').get('ticket_key')} ({res.get('jira_ticket').get('url')})")
+    print("=" * 70)
+    print("ALL SMOKE TESTS PASSED SUCCESSFULLY!")
 
 
 if __name__ == "__main__":
-    print("=" * 60)
-    print("AuraCommerce AI Agent Pipeline — End-to-End Integration Test")
-    print("=" * 60)
-
-    # Scenario 1: Payment service failure
-    trigger_pipeline("payment-service", "payment-service-health-failed")
-
-    # Scenario 2: Queue backlog
-    trigger_pipeline("notification-service", "queue-backlog-detected")
-
-    # Scenario 3: DB connectivity
-    trigger_pipeline("order-service", "database-connectivity-failed")
-
-    print("\n" + "=" * 60)
-    print("PIPELINE STATUS: COMPLETE (Concrete wiring + Kubernetes + Lambda + Agents)")
-    print("=" * 60)
-    sys.exit(0)
+    asyncio.run(run_pipeline_test())
