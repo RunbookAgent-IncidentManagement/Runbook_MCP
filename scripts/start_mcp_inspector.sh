@@ -16,5 +16,10 @@ echo "--------------------------------------------------------"
 echo "🌐 Inspector URL: http://<YOUR_EC2_PUBLIC_IP>:5173"
 echo "--------------------------------------------------------"
 
+if ! command -v npx &> /dev/null; then
+  echo "📦 Installing Node.js & npx for FastMCP Inspector..."
+  sudo apt update -y && sudo apt install -y nodejs npm 2>/dev/null || true
+fi
+
 # Launch official FastMCP Dev Inspector
 npx -y @modelcontextprotocol/inspector python3 mcp-servers/kubernetes_mcp_server.py
