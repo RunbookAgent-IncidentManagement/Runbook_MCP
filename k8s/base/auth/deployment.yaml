@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: api
-        image: ecommerce/auth-service:v1.0.0
+        image: secretpower/auth-rba:v1
         ports:
         - containerPort: 8000
         env:

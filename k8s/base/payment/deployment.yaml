@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: api
-        image: ecommerce/payment-service:v1.0.0
+        image: secretpower/payment-rba:v1
         ports:
         - containerPort: 8000
         env:

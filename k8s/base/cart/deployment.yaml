@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: api
-        image: ecommerce/cart-service:v1.0.0
+        image: secretpower/cart-rba:v1
         ports:
         - containerPort: 8000
         env:
