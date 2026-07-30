@@ -68,8 +68,8 @@ kubectl create namespace ecommerce 2>/dev/null || true
 # Purge stale deployments/ReplicaSets from previous runs
 kubectl delete rs --all -n ecommerce 2>/dev/null || true
 
-# Apply base manifests (database + shared code + microservices)
-for dir in postgres redis shared product cart order payment notification auth; do
+# Apply base manifests (database + shared code + frontend + microservices)
+for dir in postgres redis shared frontend product cart order payment notification auth; do
   kubectl apply -f "${PROJECT_ROOT}/k8s/base/$dir/" --namespace=ecommerce 2>/dev/null || true
 done
 
@@ -95,8 +95,8 @@ kubectl rollout restart deployment -n ecommerce 2>/dev/null || true
 
 # 6. Verify Python Agent Dependencies
 echo "📦 Installing/verifying Agentic Python dependencies (FastAPI, uvicorn, pydantic)..."
-python3 -m pip install fastapi uvicorn pydantic requests pyyaml mcp langgraph --break-system-packages 2>/dev/null || \
-pip3 install fastapi uvicorn pydantic requests pyyaml 2>/dev/null || true
+sudo apt update -y && sudo apt install -y python3-pip 2>/dev/null || true
+pip3 install -r "${PROJECT_ROOT}/requirements.txt" --break-system-packages 2>/dev/null || pip3 install -r "${PROJECT_ROOT}/requirements.txt" 2>/dev/null || true
 
 # 7. Set Environment Variables for FastMCP & LLM Classification
 export KUBECONFIG=~/.kube/config
