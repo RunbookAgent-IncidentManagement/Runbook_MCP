@@ -65,8 +65,11 @@ fi
 echo "☸️ Applying Kubernetes manifests (secretpower/*-rba:v1) to 'ecommerce' namespace..."
 kubectl create namespace ecommerce 2>/dev/null || true
 
-# Apply base manifests (database + microservices)
-for dir in postgres redis product cart order payment notification auth; do
+# Purge stale deployments/ReplicaSets from previous runs
+kubectl delete rs --all -n ecommerce 2>/dev/null || true
+
+# Apply base manifests (database + shared code + microservices)
+for dir in postgres redis shared product cart order payment notification auth; do
   kubectl apply -f "${PROJECT_ROOT}/k8s/base/$dir/" --namespace=ecommerce 2>/dev/null || true
 done
 

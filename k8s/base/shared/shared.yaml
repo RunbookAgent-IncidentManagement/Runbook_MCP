@@ -1,0 +1,65 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shared-code
+  namespace: ecommerce
+data:
+  database.py: |
+    from sqlalchemy import create_engine
+    from sqlalchemy.ext.declarative import declarative_base
+    from sqlalchemy.orm import sessionmaker
+    import os
+
+    DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://postgres:postgres@postgres:5432/ecommerce")
+    engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_size=10, max_overflow=20)
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    Base = declarative_base()
+
+    try:
+        Base.metadata.create_all(bind=engine)
+    except Exception as exc:
+        import logging
+        logging.getLogger(__name__).warning(f"Base.metadata.create_all skipped: {exc}")
+
+    def get_db():
+        db = SessionLocal()
+        try:
+            yield db
+        finally:
+            db.close()
+  events.py: |
+    from pydantic import BaseModel, Field
+    from datetime import datetime
+    from typing import Optional, List, Dict, Any
+    from enum import Enum
+
+    class EventType(str, Enum):
+        ORDER_CREATED = "order.created"
+        ORDER_CONFIRMED = "order.confirmed"
+        ORDER_CANCELLED = "order.cancelled"
+        PAYMENT_PROCESSED = "payment.processed"
+        PAYMENT_FAILED = "payment.failed"
+        NOTIFICATION_SENT = "notification.sent"
+        CART_UPDATED = "cart.updated"
+        PRODUCT_UPDATED = "product.updated"
+        QUEUE_BACKLOG = "queue.backlog"
+
+    class BaseEvent(BaseModel):
+        event_id: str = Field(default_factory=lambda: __import__('uuid').uuid4().hex)
+        event_type: EventType
+        timestamp: datetime = Field(default_factory=datetime.utcnow)
+        source_service: str
+        payload: Dict[str, Any]
+        metadata: Optional[Dict[str, Any]] = None
+
+    class OrderCreatedEvent(BaseEvent):
+        event_type: EventType = EventType.ORDER_CREATED
+        payload: Dict[str, Any]
+
+    class PaymentProcessedEvent(BaseEvent):
+        event_type: EventType = EventType.PAYMENT_PROCESSED
+        payload: Dict[str, Any]
+
+    class QueueBacklogEvent(BaseEvent):
+        event_type: EventType = EventType.QUEUE_BACKLOG
+        payload: Dict[str, Any]

@@ -46,3 +46,10 @@ spec:
           limits:
             memory: "256Mi"
             cpu: "250m"
+        volumeMounts:
+        - name: shared-code-volume
+          mountPath: /app/backend/shared
+      volumes:
+      - name: shared-code-volume
+        configMap:
+          name: shared-code
