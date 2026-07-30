@@ -50,7 +50,7 @@ async def health_check():
     }
 
 
-from mcp_client import mcp_client_manager
+from mcp_client import mcp_client
 
 
 class MCPToolCall(BaseModel):
@@ -92,8 +92,8 @@ async def list_mcp_tools():
 async def call_mcp_tool(request: MCPToolCall):
     """Interactively execute any FastMCP tool on Kubernetes or Jira servers over stdio."""
     try:
-        res = mcp_client_manager.call_tool(
-            server_name=request.server,
+        res = await mcp_client.call_tool(
+            server=request.server,
             tool_name=request.tool_name,
             arguments=request.arguments or {}
         )
