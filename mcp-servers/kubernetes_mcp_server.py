@@ -174,6 +174,11 @@ if __name__ == "__main__":
     if "--sse" in sys.argv or os.getenv("MCP_TRANSPORT") == "sse":
         port = int(os.getenv("PORT", 8001))
         print(f"🚀 Starting FastMCP Kubernetes Web/SSE Server on http://0.0.0.0:{port}")
-        mcp.run(transport="sse", host="0.0.0.0", port=port)
+        try:
+            mcp.settings.host = "0.0.0.0"
+            mcp.settings.port = port
+        except Exception:
+            pass
+        mcp.run(transport="sse")
     else:
         mcp.run(transport="stdio")
