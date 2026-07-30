@@ -50,6 +50,15 @@ async def health_check():
     }
 
 
+from mcp_client import mcp_client_manager
+
+
+class MCPToolCall(BaseModel):
+    server: str = "kubernetes"
+    tool_name: str = "get_pod_status"
+    arguments: Optional[Dict[str, Any]] = {"pod_name": "payment-service"}
+
+
 @app.get("/runbooks", tags=["catalog"])
 async def list_runbooks():
     """List all available runbooks from the catalog."""
@@ -57,6 +66,45 @@ async def list_runbooks():
         "count": len(catalog.list_runbooks()),
         "runbooks": catalog.list_runbooks()
     }
+
+
+@app.get("/mcp/tools", tags=["mcp-testing"])
+async def list_mcp_tools():
+    """List all registered FastMCP tools across Kubernetes & Jira MCP servers."""
+    return {
+        "mcp_servers": {
+            "kubernetes": [
+                {"name": "get_pod_logs", "description": "Retrieve stdout/stderr logs from a pod", "args": ["pod_name", "namespace"]},
+                {"name": "rollout_restart", "description": "Trigger rolling restart of a deployment", "args": ["deployment", "namespace"]},
+                {"name": "rollout_undo", "description": "Roll back deployment to previous revision", "args": ["deployment", "namespace"]},
+                {"name": "scale_deployment", "description": "Scale deployment to target replicas", "args": ["deployment", "replicas", "namespace"]},
+                {"name": "get_pod_status", "description": "Check pod status and readiness probes", "args": ["pod_name", "namespace"]}
+            ],
+            "jira": [
+                {"name": "create_ticket", "description": "Create an incident ticket in Jira", "args": ["summary", "description", "issue_type", "priority"]},
+                {"name": "get_ticket_status", "description": "Retrieve Jira ticket status by key", "args": ["ticket_key"]}
+            ]
+        }
+    }
+
+
+@app.post("/mcp/tools/call", tags=["mcp-testing"])
+async def call_mcp_tool(request: MCPToolCall):
+    """Interactively execute any FastMCP tool on Kubernetes or Jira servers over stdio."""
+    try:
+        res = mcp_client_manager.call_tool(
+            server_name=request.server,
+            tool_name=request.tool_name,
+            arguments=request.arguments or {}
+        )
+        return {
+            "status": "success",
+            "server": request.server,
+            "tool_name": request.tool_name,
+            "result": res
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"MCP Tool Execution Error: {exc}")
 
 
 @app.post("/execute", tags=["execution"])
