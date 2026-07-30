@@ -21,5 +21,5 @@ if ! command -v npx &> /dev/null; then
   sudo apt update -y && sudo apt install -y nodejs npm 2>/dev/null || true
 fi
 
-# Launch official FastMCP Dev Inspector on 0.0.0.0 for Public IP access
-CLIENT_HOST=0.0.0.0 SERVER_HOST=0.0.0.0 HOST=0.0.0.0 CLIENT_PORT=6274 npx -y @modelcontextprotocol/inspector python3 mcp-servers/kubernetes_mcp_server.py
+# Launch official FastMCP Dev Inspector with --host 0.0.0.0 for Public IP access
+npx -y @modelcontextprotocol/inspector --host 0.0.0.0 --port 6274 python3 mcp-servers/kubernetes_mcp_server.py
