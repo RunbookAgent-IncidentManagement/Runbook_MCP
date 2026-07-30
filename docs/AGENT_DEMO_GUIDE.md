@@ -1,20 +1,21 @@
 # 🚀 AuraCommerce Agentic Workflow — AWS Free Tier (`t3.small`) Demonstration Guide
 
-> **Core Objective**: Demonstrate **Autonomous AI Agentic Workflows** (LLM Incident Classification → FastMCP Stdio Tools → Kubernetes Pod Health Verification → 2-Attempt Retries → Jira Ticket Escalation) on a lightweight AWS Free Tier EC2 instance.
+> **Core Objective**: Demonstrate **Autonomous AI Agentic Workflows** (LLM Incident Classification → FastMCP Stdio Tools → Kubernetes Pod Health Verification → 2-Attempt Retries → Jira Ticket Escalation) on a lightweight AWS Free Tier EC2 instance using **Docker Hub container images (`secretpower/*-rba:v1`)**.
 
 ---
 
 ## 📐 Agentic Architecture Overview
 
 ```
-                      [ K3s Pod Crash Alert ]
-                                 │
-                                 ▼ (HTTP POST)
-                   ┌───────────────────────────┐
-                   │  FastAPI Runner Service   │
-                   └─────────────┬─────────────┘
-                                 │
-                                 ▼
+                      [ K3s Pod Crash Alert / Webhook ]
+                                     │
+                                     ▼ (HTTP POST)
+                       ┌───────────────────────────┐
+                       │  FastAPI Runner Service   │
+                       │   (http://...:8000/docs)  │
+                       └─────────────┬─────────────┘
+                                     │
+                                     ▼
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                    LANGGRAPH AGENTIC STATE MACHINE                      │
 │                                                                         │
@@ -30,15 +31,29 @@
 
 ---
 
+## 🐳 Docker Hub Container Image Mapping
+
+| Component | Container Image Tag | Kubernetes Manifest | Exposed Port / NodePort |
+|---|---|---|---|
+| **Frontend Web App** | `secretpower/frontend-rba:v1` | [k8s/base/frontend/deployment.yaml](file:///c:/Users/Pruthvi%20Bhat/OneDrive/Desktop/UST/RunBook_for_Ecommerce/k8s/base/frontend/deployment.yaml) | `http://<IP>/` & Port `30000` |
+| **Product Service** | `secretpower/product-rba:v1` | [k8s/base/product/deployment.yaml](file:///c:/Users/Pruthvi%20Bhat/OneDrive/Desktop/UST/RunBook_for_Ecommerce/k8s/base/product/deployment.yaml) | `http://<IP>/products` & Port `30001` |
+| **Cart Service** | `secretpower/cart-rba:v1` | [k8s/base/cart/deployment.yaml](file:///c:/Users/Pruthvi%20Bhat/OneDrive/Desktop/UST/RunBook_for_Ecommerce/k8s/base/cart/deployment.yaml) | `http://<IP>/cart` & Port `30002` |
+| **Order Service** | `secretpower/order-rba:v1` | [k8s/base/order/deployment.yaml](file:///c:/Users/Pruthvi%20Bhat/OneDrive/Desktop/UST/RunBook_for_Ecommerce/k8s/base/order/deployment.yaml) | `http://<IP>/orders` & Port `30003` |
+| **Payment Service** | `secretpower/payment-rba:v1` | [k8s/base/payment/deployment.yaml](file:///c:/Users/Pruthvi%20Bhat/OneDrive/Desktop/UST/RunBook_for_Ecommerce/k8s/base/payment/deployment.yaml) | `http://<IP>/payments` & Port `30004` |
+| **Notification Service** | `secretpower/notification-rba:v1` | [k8s/base/notification/deployment.yaml](file:///c:/Users/Pruthvi%20Bhat/OneDrive/Desktop/UST/RunBook_for_Ecommerce/k8s/base/notification/deployment.yaml) | `http://<IP>/notifications` & Port `30005` |
+| **Auth Service** | `secretpower/auth-rba:v1` | [k8s/base/auth/deployment.yaml](file:///c:/Users/Pruthvi%20Bhat/OneDrive/Desktop/UST/RunBook_for_Ecommerce/k8s/base/auth/deployment.yaml) | `http://<IP>/auth` & Port `30006` |
+
+---
+
 ## ⏱️ Quick Start Checklist (Run Demo in < 5 Minutes)
 
 | Step | Action | Command / Location | Time |
 |---|---|---|---|
 | **1. Provision** | Launch EC2 `t3.small` (Ubuntu 22.04) | AWS Console | 1 min |
-| **2. Prep** | Configure 2GB Swap & Install K3s | Copy-paste terminal commands | 1 min |
-| **3. Transfer** | Copy workspace & set HuggingFace Token | `scp` / `export HUGGINGFACE_TOKEN=...` | 1 min |
+| **2. Security Group** | Allow Ports `80`, `8000`, `30000-32767` | AWS Security Group | 1 min |
+| **3. Transfer** | Copy workspace or `git clone` | `git clone ...` | 1 min |
 | **4. Launch** | Run One-Click Setup Script | `./scripts/setup_free_tier.sh` | 1 min |
-| **5. Demo** | Trigger Live Agentic Incident Flows | `python scripts/incidents/simulate_payment_crash.py` | 30 sec |
+| **5. Demo** | Trigger Live Agentic Incident Flows | `python3 scripts/incidents/simulate_payment_crash.py` | 30 sec |
 
 ---
 
@@ -49,100 +64,63 @@
 - **Instance Type**: `t3.small` (2 vCPUs, 2 GiB RAM — Free Tier eligible)
 - **Security Group Inbound Rules**:
   - `22` (SSH) — My IP
-  - `8000` (FastAPI Agent Runner API)
+  - `80` (HTTP Traefik Ingress)
+  - `8000` (FastAPI Agent Runner API & Interactive FastMCP Console)
+  - `30000 - 32767` (Kubernetes NodePorts for direct service access)
 
-### Step 2: SSH & System Optimization (EC2 Terminal)
-Connect to your EC2 instance and enable a **2 GB Swap File** to ensure smooth execution of K3s and Python processes:
+### Step 2: System Setup & One-Click Launch (EC2 Terminal)
 
 ```bash
-# SSH into your EC2 instance
+# 1. SSH into your EC2 instance
 ssh -i /path/to/your-key.pem ubuntu@<YOUR_EC2_PUBLIC_IP>
 
-# System update & 2GB Swap Memory Configuration
-sudo apt update && sudo apt install -y git curl python3 python3-pip python3-venv docker.io
-sudo fallocate -l 2G /swapfile || sudo dd if=/dev/zero of=/swapfile bs=1M count=2048
-sudo chmod 600 /swapfile
-sudo mkswap /swapfile
-sudo swapon /swapfile
-echo '/swapfile swap swap defaults 0 0' | sudo tee -a /etc/fstab || true
+# 2. Clone repository & navigate to root
+git clone https://github.com/RunbookAgent-IncidentManagement/Runbook_MCP.git
+cd Runbook_MCP
 
-# Verify 2GB swap is active
-free -h
-```
-
----
-
-### Step 3: Install K3s Lightweight Kubernetes
-```bash
-# Install single-node K3s
-curl -sfL https://get.k3s.io | sh -
-
-# Configure kubectl permissions
-mkdir -p ~/.kube
-sudo cp /etc/rancher/k3s/k3s.yaml ~/.kube/config
-sudo chown $(id -u):$(id -g) ~/.kube/config
-export KUBECONFIG=~/.kube/config
-
-# Verify cluster node status
-kubectl get nodes
-```
-
----
-
-### Step 4: Transfer Workspace & Configure Environment
-From your **Local Terminal**, copy the repository to EC2:
-
-```bash
-scp -r -i /path/to/your-key.pem "RunBook_for_Ecommerce" ubuntu@<YOUR_EC2_PUBLIC_IP>:~/
-```
-
-Then on your **EC2 Terminal**:
-
-```bash
-cd ~/RunBook_for_Ecommerce
-
-# Export your Hugging Face API Key (Inference API)
+# 3. Export Hugging Face API Key (Optional — rule engine fallback triggers if omitted)
 export HUGGINGFACE_TOKEN="hf_your_actual_token_here"
 export HUGGINGFACE_API_URL="https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2"
 
-# Jira credentials (Optional — runs in mock mode if token is omitted)
-export JIRA_URL="https://your-domain.atlassian.net"
-export JIRA_TOKEN=""
-export JIRA_PROJECT_KEY="INC"
-
-# Set K8S_DRY_RUN to false to interact with real K3s cluster
+# 4. Set K8S_DRY_RUN to false to interact with real K3s cluster
 export K8S_DRY_RUN="false"
-```
 
----
-
-### Step 5: Launch Environment with One Command
-
-Run the automated launch script:
-
-```bash
+# 5. Run One-Click Setup Script
 chmod +x scripts/setup_free_tier.sh scripts/stop_free_tier.sh
 ./scripts/setup_free_tier.sh
 ```
 
 **What `./scripts/setup_free_tier.sh` automates:**
-1. Verifies 2GB Swap Memory and K3s cluster readiness.
-2. Creates Kubernetes namespace `ecommerce`.
-3. Deploys healthy payment microservice deployment (`k8s/demo/payment-service-v1-healthy.yaml`).
-4. Launches **Kubernetes FastMCP Server** & **Jira FastMCP Server** over stdio.
-5. Starts the **FastAPI Agent Runner Service** on port `8000`.
+1. Configures 2GB Swap Memory (prevents OOM on Free Tier).
+2. Installs K3s lightweight Kubernetes cluster.
+3. Applies base database (`postgres`), redis, `shared-code` ConfigMap, and frontend manifests.
+4. Deploys all 6 microservices using `secretpower/*-rba:v1` Docker Hub images with `replicas: 1`, `requests.memory=64Mi`, and `requests.cpu=50m`.
+5. Deploys K3s Traefik Ingress (Port 80) and NodePorts (`30000-30006`).
+6. Launches FastMCP stdio servers and FastAPI Agent Runner service (`http://0.0.0.0:8000`).
+
+---
+
+## 🌐 Public Access Endpoints (Replace `<YOUR_EC2_PUBLIC_IP>` with your EC2 IP)
+
+### 1. Frontend E-Commerce Web Application
+- **Main Web App (Port 80)**: `http://<YOUR_EC2_PUBLIC_IP>/`
+- **Direct NodePort (Port 30000)**: `http://<YOUR_EC2_PUBLIC_IP>:30000/`
+
+### 2. FastAPI Runbook Agent & Interactive FastMCP Testing Console
+- **Interactive Swagger UI**: `http://<YOUR_EC2_PUBLIC_IP>:8000/docs`
+- **Agent Health**: `http://<YOUR_EC2_PUBLIC_IP>:8000/health`
+- **Runbook Catalog**: `http://<YOUR_EC2_PUBLIC_IP>:8000/runbooks`
+- **Interactive FastMCP Tool Tester**: `http://<YOUR_EC2_PUBLIC_IP>:8000/docs#operations-mcp-call_mcp_tool`
+  - `GET /mcp/tools` — Lists all registered FastMCP tools & arguments.
+  - `POST /mcp/tools/call` — Interactively executes any FastMCP tool (`get_pod_status`, `rollout_restart`, `scale_deployment`, `create_ticket`).
 
 ---
 
 ## 🎭 Demonstrating the Agentic Workflows Live
 
-Now you are ready to demonstrate the AI Agentic Capabilities to your audience!
-
----
-
 ### 🌟 DEMO SCENARIO 1: Autonomous Remediation (Self-Healing)
 
-**Story**: A payment microservice suffers a transient crash (`CrashLoopBackOff`). The AI Agent classifies the error using Mistral LLM, selects `RB-001`, invokes the Kubernetes FastMCP tool to restart the deployment, and verifies health recovery autonomously.
+**Story**: A payment microservice suffers a transient crash (`CrashLoopBackOff`). The AI Agent classifies the error using Mistral LLM, selects `RB-001`, invokes the Kubernetes FastMCP tool over stdio to restart the deployment, and verifies health recovery autonomously.
 
 #### Execution Command:
 ```bash
@@ -212,3 +190,4 @@ When you finish your demonstration or want to power off your EC2 instance:
 - **State Machine Control**: LangGraph manages execution state, attempt counters, and retry loops.
 - **Empirical Verification**: Checks real pod status via Kubernetes API before declaring success.
 - **Autonomous Escalation**: Automatically creates Jira tickets when remediation retries are exhausted.
+- **Interactive Tool Console**: Interactive Swagger UI on Port `8000` for live tool inspection and invocation.
