@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Helper Script to Launch the Interactive FastMCP Developer Inspector Dashboard
+# Helper Script to Launch FastMCP Native Web & SSE Testing Servers
 # ==============================================================================
 set -e
 
@@ -11,15 +11,17 @@ cd "${PROJECT_ROOT}"
 export KUBECONFIG=~/.kube/config
 export K8S_NAMESPACE="ecommerce"
 
-echo "🎨 Launching FastMCP Interactive Web Inspector..."
+echo "🎨 Launching FastMCP Web/SSE Servers..."
 echo "--------------------------------------------------------"
-echo "🌐 Inspector URL: http://<YOUR_EC2_PUBLIC_IP>:5173"
+echo "🌐 Kubernetes FastMCP Server: http://<YOUR_EC2_PUBLIC_IP>:8001"
+echo "🌐 Jira FastMCP Server:       http://<YOUR_EC2_PUBLIC_IP>:8002"
 echo "--------------------------------------------------------"
 
-if ! command -v npx &> /dev/null; then
-  echo "📦 Installing Node.js & npx for FastMCP Inspector..."
-  sudo apt update -y && sudo apt install -y nodejs npm 2>/dev/null || true
-fi
+pkill -f "kubernetes_mcp_server.py --sse" || true
+pkill -f "jira_mcp_server.py --sse" || true
 
-# Launch official FastMCP Dev Inspector with --host 0.0.0.0 for Public IP access
-npx -y @modelcontextprotocol/inspector --host 0.0.0.0 --port 6274 python3 mcp-servers/kubernetes_mcp_server.py
+PORT=8001 python3 mcp-servers/kubernetes_mcp_server.py --sse &
+PORT=8002 python3 mcp-servers/jira_mcp_server.py --sse &
+
+sleep 2
+echo "✅ FastMCP Native Web/SSE Servers active on ports 8001 and 8002!"

@@ -107,4 +107,9 @@ def get_ticket_status(ticket_key: str) -> str:
 
 
 if __name__ == "__main__":
-    mcp.run(transport="stdio")
+    if "--sse" in sys.argv or os.getenv("MCP_TRANSPORT") == "sse":
+        port = int(os.getenv("PORT", 8002))
+        print(f"🚀 Starting FastMCP Jira Web/SSE Server on http://0.0.0.0:{port}")
+        mcp.run(transport="sse", host="0.0.0.0", port=port)
+    else:
+        mcp.run(transport="stdio")
