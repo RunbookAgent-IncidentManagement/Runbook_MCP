@@ -73,6 +73,9 @@ for dir in postgres redis shared product cart order payment notification auth; d
   kubectl apply -f "${PROJECT_ROOT}/k8s/base/$dir/" --namespace=ecommerce 2>/dev/null || true
 done
 
+# Apply Public Access Ingress & NodePort manifests
+kubectl apply -f "${PROJECT_ROOT}/k8s/ingress/public-access.yaml" --namespace=ecommerce 2>/dev/null || true
+
 # 5. Set Docker Hub Images (secretpower/*-rba:v1) & Single-Node Resource Optimization
 echo "🐳 Setting container images to secretpower/*-rba:v1 from Docker Hub..."
 for deploy in cart-service order-service payment-service product-service notification-service auth-service; do
