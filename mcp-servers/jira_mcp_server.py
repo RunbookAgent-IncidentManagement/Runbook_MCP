@@ -11,21 +11,28 @@ import urllib.request
 import urllib.error
 
 try:
-    from mcp.server.fastmcp import FastMCP
+    from fastmcp import FastMCP
 except ImportError:
-    class FastMCP:
-        def __init__(self, name):
-            self.name = name
-            self.tools = {}
+    try:
+        from mcp.server.fastmcp import FastMCP
+    except ImportError:
+        try:
+            from mcp.server import FastMCP
+        except ImportError as err:
+            print(f"[WARN] Real FastMCP package not loaded ({err}). Using fallback shim.", file=sys.stderr)
+            class FastMCP:
+                def __init__(self, name):
+                    self.name = name
+                    self.tools = {}
 
-        def tool(self, func=None):
-            def decorator(f):
-                self.tools[f.__name__] = f
-                return f
-            return decorator(func) if func else decorator
+                def tool(self, func=None):
+                    def decorator(f):
+                        self.tools[f.__name__] = f
+                        return f
+                    return decorator(func) if func else decorator
 
-        def run(self, transport="stdio"):
-            print(f"[{self.name}] Running over {transport}", file=sys.stderr)
+                def run(self, transport="stdio"):
+                    print(f"[{self.name}] Running over {transport} (shim)", file=sys.stderr)
 
 mcp = FastMCP("jira-mcp-server")
 
