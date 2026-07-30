@@ -109,6 +109,8 @@ def get_ticket_status(ticket_key: str) -> str:
 if __name__ == "__main__":
     if "--sse" in sys.argv or os.getenv("MCP_TRANSPORT") == "sse":
         port = int(os.getenv("PORT", 8002))
+        os.environ["FASTMCP_HOST"] = "0.0.0.0"
+        os.environ["FASTMCP_PORT"] = str(port)
         print(f"🚀 Starting FastMCP Jira Web/SSE Server on http://0.0.0.0:{port}")
         try:
             mcp.settings.host = "0.0.0.0"

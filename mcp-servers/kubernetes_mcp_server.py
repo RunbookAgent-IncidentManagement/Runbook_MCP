@@ -173,6 +173,8 @@ def get_pod_status(pod_name: str, namespace: str = DEFAULT_NAMESPACE) -> str:
 if __name__ == "__main__":
     if "--sse" in sys.argv or os.getenv("MCP_TRANSPORT") == "sse":
         port = int(os.getenv("PORT", 8001))
+        os.environ["FASTMCP_HOST"] = "0.0.0.0"
+        os.environ["FASTMCP_PORT"] = str(port)
         print(f"🚀 Starting FastMCP Kubernetes Web/SSE Server on http://0.0.0.0:{port}")
         try:
             mcp.settings.host = "0.0.0.0"
