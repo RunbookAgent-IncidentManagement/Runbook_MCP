@@ -136,7 +136,7 @@ async def verify_recovery(state: RunbookState) -> RunbookState:
     logger.info(f"NODE verify_recovery: Invoking {server}.{tool_name} for pod={service}")
     verify_res = await mcp_client.call_tool(server, tool_name, args)
 
-    is_healthy = verify_res.get("healthy", False) or verify_res.get("status") == "Running" or verify_res.get("dry_run", False)
+    is_healthy = bool(verify_res.get("healthy", False) or verify_res.get("dry_run", False))
 
     state["verification_result"] = is_healthy
 
