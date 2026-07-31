@@ -14,7 +14,6 @@ def simulate_payment_crash():
     payload = {
         "event_type": "CrashLoopBackOff",
         "service": "payment-service",
-        "runbook_id": "RB-001",
         "payload": {
             "service": "payment-service",
             "alert_name": "payment-service-health-failed",
