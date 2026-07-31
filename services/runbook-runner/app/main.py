@@ -88,6 +88,25 @@ async def list_mcp_tools():
     }
 
 
+@app.post("/mcp/tools/call", tags=["mcp-testing"])
+async def call_mcp_tool(request: MCPToolCall):
+    """Interactively execute any FastMCP tool on Kubernetes or Jira servers over stdio."""
+    try:
+        res = await mcp_client.call_tool(
+            server=request.server,
+            tool_name=request.tool_name,
+            arguments=request.arguments or {}
+        )
+        return {
+            "status": "success",
+            "server": request.server,
+            "tool_name": request.tool_name,
+            "result": res
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"MCP Tool Execution Error: {exc}")
+
+
 from fastapi.responses import HTMLResponse
 
 
