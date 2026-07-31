@@ -67,27 +67,26 @@ class MCPToolClient:
             return await self._direct_script_call(server_key, tool_name, arguments)
 
     async def _direct_script_call(self, server: str, tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        """Direct execution fallback for MCP tools."""
+        """Direct execution fallback for MCP tools compatible with FastMCP v2."""
+        srv_module = None
         if "k8s" in server or "kubernetes" in server:
             sys.path.insert(0, os.path.join(BASE_DIR, "mcp-servers"))
-            import kubernetes_mcp_server as k8s_srv
-            func = getattr(k8s_srv, tool_name, None)
-            if func:
-                raw = func(**arguments)
-                try:
-                    return json.loads(raw) if isinstance(raw, str) else raw
-                except Exception:
-                    return {"result": raw}
+            import kubernetes_mcp_server as srv_module
         elif "jira" in server:
             sys.path.insert(0, os.path.join(BASE_DIR, "mcp-servers"))
-            import jira_mcp_server as jira_srv
-            func = getattr(jira_srv, tool_name, None)
-            if func:
-                raw = func(**arguments)
-                try:
-                    return json.loads(raw) if isinstance(raw, str) else raw
-                except Exception:
-                    return {"result": raw}
+            import jira_mcp_server as srv_module
+
+        if srv_module:
+            target = getattr(srv_module, tool_name, None)
+            if target:
+                # FastMCP v2 returns a FunctionTool wrapper object; extract underlying function .fn if needed
+                fn = target.fn if hasattr(target, "fn") else target
+                if callable(fn):
+                    raw = fn(**arguments)
+                    try:
+                        return json.loads(raw) if isinstance(raw, str) else raw
+                    except Exception:
+                        return {"result": raw}
 
         return {"status": "error", "message": f"Tool '{tool_name}' not found on server '{server}'."}
 

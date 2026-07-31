@@ -54,35 +54,42 @@ class HuggingFaceMistralClassifier:
         self.api_url = api_url
         self.token = token
 
-    def classify(self, service: str, event_type: str, logs: list = None, k8s_events: list = None, metrics: dict = None) -> dict:
+    async def classify(self, service: str, event_type: str, logs: list = None, k8s_events: list = None, metrics: dict = None) -> dict:
         logs = logs or []
         k8s_events = k8s_events or []
         metrics = metrics or {}
 
-        # 1. Attempt LLM API Inference if token or URL is available
-        prompt = CLASSIFIER_PROMPT_TEMPLATE.format(
-            service=service,
-            event_type=event_type,
-            logs=", ".join(logs),
-            k8s_events=", ".join(k8s_events),
-            metrics=json.dumps(metrics)
-        )
+        token = os.getenv("HUGGINGFACE_TOKEN", self.token)
+        # Skip HTTP call immediately if no valid token is provided to prevent timeout delays
+        if token and not token.startswith("hf_demo") and token != "hf_demo_token_here":
+            prompt = CLASSIFIER_PROMPT_TEMPLATE.format(
+                service=service,
+                event_type=event_type,
+                logs=", ".join(logs),
+                k8s_events=", ".join(k8s_events),
+                metrics=json.dumps(metrics)
+            )
 
-        headers = {"Content-Type": "application/json"}
-        if self.token and not self.token.startswith("hf_demo"):
-            headers["Authorization"] = f"Bearer {self.token}"
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {token}"
+            }
 
-        try:
-            payload = json.dumps({
-                "inputs": prompt,
-                "parameters": {"max_new_tokens": 150, "temperature": 0.1, "return_full_text": False}
-            }).encode("utf-8")
+            def _call_api():
+                payload = json.dumps({
+                    "inputs": prompt,
+                    "parameters": {"max_new_tokens": 150, "temperature": 0.1, "return_full_text": False}
+                }).encode("utf-8")
+                req = urllib.request.Request(self.api_url, data=payload, headers=headers, method="POST")
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    if response.status == 200:
+                        return json.loads(response.read().decode("utf-8"))
+                return None
 
-            req = urllib.request.Request(self.api_url, data=payload, headers=headers, method="POST")
-            with urllib.request.urlopen(req, timeout=12) as response:
-                if response.status == 200:
-                    raw_body = response.read().decode("utf-8")
-                    data = json.loads(raw_body)
+            try:
+                import asyncio
+                data = await asyncio.to_thread(_call_api)
+                if data:
                     raw_text = ""
                     if isinstance(data, list) and len(data) > 0:
                         raw_text = data[0].get("generated_text", "")
@@ -93,8 +100,8 @@ class HuggingFaceMistralClassifier:
                     if parsed and "runbook_id" in parsed:
                         parsed["source"] = "mistral_llm"
                         return parsed
-        except Exception as exc:
-            logger.warning(f"LLM Inference API call skipped/failed: {exc}. Falling back to rule-based classification.")
+            except Exception as exc:
+                logger.warning(f"LLM Inference API call skipped/failed: {exc}. Falling back to rule-based classification.")
 
         # 2. Deterministic Rule-Based Fallback Classifier
         return self._keyword_fallback(service, event_type, logs, k8s_events, metrics)
@@ -112,7 +119,25 @@ class HuggingFaceMistralClassifier:
     def _keyword_fallback(self, service: str, event_type: str, logs: list, k8s_events: list, metrics: dict) -> dict:
         combined_signals = (event_type + " " + " ".join(logs) + " " + " ".join(k8s_events)).lower()
 
-        if "crashloop" in combined_signals or "liveness" in combined_signals or "pod_failure" in combined_signals:
+        if "oomkilled" in combined_signals or "outofmemory" in combined_signals:
+            return {
+                "runbook_id": "RB-003",
+                "category": "MEMORY_PRESSURE",
+                "severity": "P1",
+                "confidence": 0.95,
+                "reasoning": "Detected OOMKilled / Metaspace memory exhaustion. Triggering scale/memory allocation.",
+                "source": "rule_engine"
+            }
+        elif "consumer" in combined_signals or "stall" in combined_signals or "lag" in combined_signals:
+            return {
+                "runbook_id": "RB-004",
+                "category": "CONSUMER_STALL",
+                "severity": "P2",
+                "confidence": 0.92,
+                "reasoning": "Detected message consumer processing stall / lag.",
+                "source": "rule_engine"
+            }
+        elif "crashloop" in combined_signals or "liveness" in combined_signals or "pod_failure" in combined_signals:
             return {
                 "runbook_id": "RB-001",
                 "category": "POD_FAILURE",

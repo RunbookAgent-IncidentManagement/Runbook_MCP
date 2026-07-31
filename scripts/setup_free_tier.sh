@@ -104,15 +104,11 @@ export K8S_NAMESPACE="ecommerce"
 export K8S_DRY_RUN="${K8S_DRY_RUN:-false}"
 export HUGGINGFACE_API_URL="${HUGGINGFACE_API_URL:-https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2}"
 
-# 8. Start FastMCP stdio Servers & FastAPI Runner Service
-echo "🤖 Launching FastMCP stdio Servers and FastAPI Runner Service..."
-pkill -f "kubernetes_mcp_server" || true
-pkill -f "jira_mcp_server" || true
+# 8. Start FastAPI Runner Service (stdio MCP servers are dynamically managed by MCPToolClient subprocess sessions)
+echo "🤖 Launching FastAPI Runner Service..."
 pkill -f "services/runbook-runner" || true
 pkill -f "uvicorn" || true
 
-nohup python3 "${PROJECT_ROOT}/mcp-servers/kubernetes_mcp_server.py" > /tmp/k8s_mcp.log 2>&1 &
-nohup python3 "${PROJECT_ROOT}/mcp-servers/jira_mcp_server.py" > /tmp/jira_mcp.log 2>&1 &
 nohup python3 "${PROJECT_ROOT}/services/runbook-runner/app/main.py" > /tmp/runbook_runner.log 2>&1 &
 
 sleep 3

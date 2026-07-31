@@ -65,7 +65,7 @@ async def classify_alert(state: RunbookState) -> RunbookState:
     k8s_events = incident.get("k8s_events", [])
     metrics = incident.get("metrics", {})
 
-    llm_res = classifier.classify(service, event_type, logs, k8s_events, metrics)
+    llm_res = await classifier.classify(service, event_type, logs, k8s_events, metrics)
     state["runbook_id"] = llm_res.get("runbook_id", "RB-001")
     state["incident_details"]["classification"] = llm_res
     state["status"] = "classified"
@@ -131,15 +131,26 @@ async def verify_recovery(state: RunbookState) -> RunbookState:
     server = verify_spec.get("server", "kubernetes")
     tool_name = verify_spec.get("name", "get_pod_status")
 
-    args = {"pod_name": service}
+    raw_args = verify_spec.get("arguments", {"pod_name": "{service}"})
+    args = {}
+    for k, v in raw_args.items():
+        if isinstance(v, str):
+            try:
+                args[k] = v.format(service=service)
+            except Exception:
+                args[k] = v
+        else:
+            args[k] = v
 
     # Wait 5 seconds to allow K3s pod rollout to initialize and complete probes
     await asyncio.sleep(5)
 
-    logger.info(f"NODE verify_recovery: Invoking {server}.{tool_name} for pod={service}")
+    logger.info(f"NODE verify_recovery: Invoking {server}.{tool_name} with {args}")
     verify_res = await mcp_client.call_tool(server, tool_name, args)
 
-    is_healthy = bool(verify_res.get("healthy", False) or verify_res.get("dry_run", False))
+    is_dry_run = os.getenv("K8S_DRY_RUN", "false").lower() in ("true", "1", "yes")
+    # In live mode (dry_run=false), healthy strictly requires healthy == True
+    is_healthy = bool(verify_res.get("healthy", False)) if not is_dry_run else True
 
     state["verification_result"] = is_healthy
 
@@ -147,45 +158,63 @@ async def verify_recovery(state: RunbookState) -> RunbookState:
         state["recovery_confirmed"] = True
         state["escalation_required"] = False
         state["status"] = "completed"
-        logger.info(f"NODE verify_recovery: Pod {service} verified HEALTHY.")
+        logger.info(f"NODE verify_recovery: Target {service} verified HEALTHY.")
     else:
         state["recovery_confirmed"] = False
         state["status"] = "verifying_failed"
-        logger.warning(f"NODE verify_recovery: Pod {service} verification FAILED (Attempt {state['attempts']}/{state['max_attempts']}).")
+        logger.warning(f"NODE verify_recovery: Target {service} verification FAILED (Attempt {state['attempts']}/{state['max_attempts']}).")
 
     return state
 
 
 async def retry_or_escalate(state: RunbookState) -> RunbookState:
-    """Node/Decision: Evaluate whether to retry remediation or escalate to Jira."""
+    """Node/Decision: Evaluate whether to retry remediation, switch to fallback runbook, or escalate to Jira."""
     if state.get("recovery_confirmed"):
         state["status"] = "completed"
         return state
 
     attempts = state.get("attempts", 1)
     max_attempts = state.get("max_attempts", 2)
+    spec = state.get("runbook_spec", {})
+    service = state.get("service", "unknown")
 
     if attempts < max_attempts:
         state["status"] = "retrying"
         logger.info(f"NODE retry_or_escalate: Retrying remediation ({attempts + 1}/{max_attempts})...")
         return state
 
-    # Max attempts exhausted -> Escalate to Jira
+    # Check if a secondary fallback runbook exists (e.g., RB-001 -> RB-002 rollback)
+    fallback_rb = spec.get("fallback_runbook")
+    if fallback_rb and state.get("runbook_id") != fallback_rb:
+        logger.info(f"NODE retry_or_escalate: Primary runbook {state['runbook_id']} failed. Switching to fallback runbook {fallback_rb}...")
+        state["runbook_id"] = fallback_rb
+        state["attempts"] = 0
+        state["status"] = "loading_fallback"
+        return state
+
+    # Max attempts & fallback exhausted -> Escalate to Jira
     state["escalation_required"] = True
     state["status"] = "escalating"
 
-    spec = state.get("runbook_spec", {})
-    service = state.get("service", "unknown")
     escalation_spec = spec.get("escalation", {})
-
     server = escalation_spec.get("server", "jira")
     tool_name = escalation_spec.get("name", "create_ticket")
 
     raw_args = escalation_spec.get("arguments", {})
-    args = {
-        "title": raw_args.get("title", f"P1 Incident: {service} Recovery Failed").format(service=service),
-        "description": raw_args.get("description", f"Automated runbook {state.get('runbook_id')} failed after {attempts} attempts.").format(service=service)
-    }
+    args = {}
+    for k, v in raw_args.items():
+        if isinstance(v, str):
+            try:
+                args[k] = v.format(service=service)
+            except Exception:
+                args[k] = v
+        else:
+            args[k] = v
+
+    if not args.get("title"):
+        args["title"] = f"P1 Incident: {service} Recovery Failed"
+    if not args.get("description"):
+        args["description"] = f"Automated runbook {state.get('runbook_id')} failed after {attempts} attempts."
 
     logger.info(f"NODE retry_or_escalate: Max retries ({attempts}/{max_attempts}) reached! Escalating to Jira...")
     jira_res = await mcp_client.call_tool(server, tool_name, args)
@@ -216,8 +245,8 @@ if HAS_LANGGRAPH:
 
     graph.add_conditional_edges(
         "retry_or_escalate",
-        lambda s: "execute_remediation" if s.get("status") == "retrying" else END,
-        {"execute_remediation": "execute_remediation", END: END}
+        lambda s: "load_runbook" if s.get("status") == "loading_fallback" else ("execute_remediation" if s.get("status") == "retrying" else END),
+        {"load_runbook": "load_runbook", "execute_remediation": "execute_remediation", END: END}
     )
 
     app_runbook = graph.compile()

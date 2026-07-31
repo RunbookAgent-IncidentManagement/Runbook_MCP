@@ -42,10 +42,13 @@ JIRA_EMAIL = os.getenv("JIRA_EMAIL", "devops@example.com")
 DEFAULT_PROJECT = os.getenv("JIRA_PROJECT_KEY", "INC")
 
 
+import base64
+
 @mcp.tool()
 def create_ticket(title: str, description: str, project_key: str = DEFAULT_PROJECT, issue_type: str = "Bug") -> str:
     """Create an incident or bug ticket in Jira."""
-    if not JIRA_TOKEN or "atlassian" in JIRA_URL or "your-domain" in JIRA_URL:
+    # Real mode triggers when JIRA_TOKEN is provided and non-empty
+    if not JIRA_TOKEN or JIRA_TOKEN == "atlassian_api_token_here":
         # Mock mode when real credentials are not configured
         mock_key = f"{project_key}-101"
         return json.dumps({
@@ -57,28 +60,49 @@ def create_ticket(title: str, description: str, project_key: str = DEFAULT_PROJE
             "message": "Jira ticket created successfully in mock mode."
         })
 
+    # Atlassian API v3 requires ADF (Atlassian Document Format) for description
+    adf_description = {
+        "type": "doc",
+        "version": 1,
+        "content": [
+            {
+                "type": "paragraph",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": description
+                    }
+                ]
+            }
+        ]
+    }
+
     payload = json.dumps({
         "fields": {
             "project": {"key": project_key},
             "summary": title,
-            "description": description,
+            "description": adf_description,
             "issuetype": {"name": issue_type},
         }
     }).encode("utf-8")
     
+    # Atlassian Cloud REST API v3 requires Basic Auth with base64(email:token)
+    auth_str = f"{JIRA_EMAIL}:{JIRA_TOKEN}"
+    auth_b64 = base64.b64encode(auth_str.encode("utf-8")).decode("utf-8")
+
     headers = {
         "Content-Type": "application/json",
-        "Authorization": f"Bearer {JIRA_TOKEN}"
+        "Authorization": f"Basic {auth_b64}"
     }
 
     try:
-        req = urllib.request.Request(f"{JIRA_URL}/rest/api/3/issue", data=payload, headers=headers, method="POST")
+        req = urllib.request.Request(f"{JIRA_URL.rstrip('/')}/rest/api/3/issue", data=payload, headers=headers, method="POST")
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             return json.dumps({
                 "status": resp.status,
                 "ticket_key": data.get("key"),
-                "url": f"{JIRA_URL}/browse/{data.get('key')}",
+                "url": f"{JIRA_URL.rstrip('/')}/browse/{data.get('key')}",
                 "mode": "live"
             })
     except urllib.error.HTTPError as err:
@@ -90,7 +114,7 @@ def create_ticket(title: str, description: str, project_key: str = DEFAULT_PROJE
 @mcp.tool()
 def get_ticket_status(ticket_key: str) -> str:
     """Retrieve current status of a specified Jira issue key."""
-    if not JIRA_TOKEN or "your-domain" in JIRA_URL:
+    if not JIRA_TOKEN or JIRA_TOKEN == "atlassian_api_token_here":
         return json.dumps({
             "ticket_key": ticket_key,
             "status": "In Progress",
@@ -98,9 +122,12 @@ def get_ticket_status(ticket_key: str) -> str:
             "mode": "mock"
         })
 
-    headers = {"Authorization": f"Bearer {JIRA_TOKEN}"}
+    auth_str = f"{JIRA_EMAIL}:{JIRA_TOKEN}"
+    auth_b64 = base64.b64encode(auth_str.encode("utf-8")).decode("utf-8")
+
+    headers = {"Authorization": f"Basic {auth_b64}"}
     try:
-        req = urllib.request.Request(f"{JIRA_URL}/rest/api/3/issue/{ticket_key}", headers=headers, method="GET")
+        req = urllib.request.Request(f"{JIRA_URL.rstrip('/')}/rest/api/3/issue/{ticket_key}", headers=headers, method="GET")
         with urllib.request.urlopen(req, timeout=15) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             fields = data.get("fields", {})
