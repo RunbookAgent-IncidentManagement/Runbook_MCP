@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Helper Script to Launch FastMCP Native Web & SSE Testing Servers
+# Helper Script to Launch FastMCP Interactive Developer Web Inspector UI
 # ==============================================================================
 set -e
 
@@ -11,17 +11,17 @@ cd "${PROJECT_ROOT}"
 export KUBECONFIG=~/.kube/config
 export K8S_NAMESPACE="ecommerce"
 
-echo "🎨 Launching FastMCP Web/SSE Servers..."
-echo "--------------------------------------------------------"
-echo "🌐 Kubernetes FastMCP Server: http://<YOUR_EC2_PUBLIC_IP>:8001"
-echo "🌐 Jira FastMCP Server:       http://<YOUR_EC2_PUBLIC_IP>:8002"
+echo "🎨 Launching FastMCP Interactive Web Inspector UI..."
 echo "--------------------------------------------------------"
 
-pkill -f "kubernetes_mcp_server.py --sse" || true
-pkill -f "jira_mcp_server.py --sse" || true
-
-PORT=8001 python3 mcp-servers/kubernetes_mcp_server.py --sse &
-PORT=8002 python3 mcp-servers/jira_mcp_server.py --sse &
-
-sleep 2
-echo "✅ FastMCP Native Web/SSE Servers active on ports 8001 and 8002!"
+if command -v fastmcp &> /dev/null; then
+  echo "🚀 Launching via fastmcp dev CLI on http://0.0.0.0:5173..."
+  fastmcp dev mcp-servers/kubernetes_mcp_server.py --host 0.0.0.0 --port 5173
+else
+  if ! command -v npx &> /dev/null; then
+    echo "📦 Installing Node.js & npx..."
+    sudo apt update -y && sudo apt install -y nodejs npm 2>/dev/null || true
+  fi
+  echo "🚀 Launching via @modelcontextprotocol/inspector on http://0.0.0.0:5173..."
+  HOST=0.0.0.0 CLIENT_HOST=0.0.0.0 npx -y @modelcontextprotocol/inspector --host 0.0.0.0 --port 5173 python3 mcp-servers/kubernetes_mcp_server.py
+fi
