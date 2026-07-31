@@ -133,6 +133,9 @@ async def verify_recovery(state: RunbookState) -> RunbookState:
 
     args = {"pod_name": service}
 
+    # Wait 5 seconds to allow K3s pod rollout to initialize and complete probes
+    await asyncio.sleep(5)
+
     logger.info(f"NODE verify_recovery: Invoking {server}.{tool_name} for pod={service}")
     verify_res = await mcp_client.call_tool(server, tool_name, args)
 
