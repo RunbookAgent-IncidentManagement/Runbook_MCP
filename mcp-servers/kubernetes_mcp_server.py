@@ -141,14 +141,15 @@ def scale_deployment(deployment: str, replicas: int = 4, namespace: str = DEFAUL
 @mcp.tool()
 def get_pod_status(pod_name: str, namespace: str = DEFAULT_NAMESPACE) -> str:
     """Check the health status and readiness probes of pods matching a deployment/pod name."""
+    force_fail = os.getenv("FORCE_UNHEALTHY", "false").lower() in ("true", "1", "yes") or any(k in pod_name.lower() for k in ["broken", "unhealthy", "fail"])
     if DRY_RUN:
         return json.dumps({
-            "status": "Running",
-            "healthy": True,
+            "status": "CrashLoopBackOff" if force_fail else "Running",
+            "healthy": not force_fail,
             "pod": pod_name,
             "namespace": namespace,
-            "ready_containers": "1/1",
-            "restarts": 0,
+            "ready_containers": "0/1" if force_fail else "1/1",
+            "restarts": 5 if force_fail else 0,
             "dry_run": True
         })
 

@@ -279,11 +279,14 @@ async def run_runbook_agent(event_type: str, service: str, runbook_id: Optional[
     state = await load_runbook(state)
 
     while True:
+        if state.get("status") == "loading_fallback":
+            state = await load_runbook(state)
+
         state = await execute_remediation(state)
         state = await verify_recovery(state)
         state = await retry_or_escalate(state)
 
-        if state.get("status") != "retrying":
+        if state.get("status") not in ("retrying", "loading_fallback"):
             break
 
     return state
