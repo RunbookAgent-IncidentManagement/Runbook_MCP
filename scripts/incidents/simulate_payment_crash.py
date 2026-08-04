@@ -3,8 +3,9 @@
 Incident Simulation: Payment Service CrashLoopBackOff (Direct Runbook Execution)
 Sends an incident alert event payload to the Runbook Runner Service to trigger RB-001 (Restart Deployment).
 """
-import requests
+import json
 import time
+import requests
 
 RUNBOOK_RUNNER_URL = "http://localhost:8000/execute"
 
