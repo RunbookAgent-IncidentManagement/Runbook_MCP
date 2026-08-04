@@ -37,7 +37,7 @@ def simulate_payment_crash():
             status_url = f"http://localhost:8000/execute/{incident_id}/status"
             print(f"\n[INCIDENT] Polling execution status at {status_url}...")
 
-            for _ in range(60):
+            for _ in range(100):
                 time.sleep(2)
                 st_resp = requests.get(status_url, timeout=10)
                 if st_resp.status_code == 200:
