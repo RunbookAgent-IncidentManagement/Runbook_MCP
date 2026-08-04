@@ -6,10 +6,13 @@ Async HTTP service providing alert ingestion, LLM classification, LangGraph stat
 import os
 import sys
 import json
+import time
 import logging
+import asyncio
 from typing import Optional, Dict, Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Header, Request
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 # Add ai-agents to sys.path
@@ -19,15 +22,28 @@ sys.path.insert(0, os.path.join(BASE_DIR, "ai-agents", "langgraph"))
 
 from catalog_parser import catalog
 from runbook_agent import run_runbook_agent
+from mcp_client import mcp_client
 
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger(__name__)
 
+# Simple API key authentication (disabled when RUNNER_API_KEY is unset)
+RUNNER_API_KEY = os.getenv("RUNNER_API_KEY", "")
+
+# In-flight incident tracking for async execution & idempotency
+_incident_store: Dict[str, Dict[str, Any]] = {}
+
 app = FastAPI(
     title="Runbook Runner Service",
     description="FastAPI Service for Automated Incident Management via LangGraph & MCP",
-    version="3.0.0"
+    version="4.0.0"
 )
+
+
+def _check_api_key(x_api_key: Optional[str] = None):
+    """Validate API key if RUNNER_API_KEY is configured."""
+    if RUNNER_API_KEY and x_api_key != RUNNER_API_KEY:
+        raise HTTPException(status_code=401, detail="Invalid or missing X-API-Key header.")
 
 
 class AlertPayload(BaseModel):
@@ -35,7 +51,14 @@ class AlertPayload(BaseModel):
     service: str
     runbook_id: Optional[str] = None
     alert_name: Optional[str] = None
+    alert_id: Optional[str] = None
     payload: Optional[Dict[str, Any]] = None
+
+
+class MCPToolCall(BaseModel):
+    server: str = "kubernetes"
+    tool_name: str = "get_pod_status"
+    arguments: Optional[Dict[str, Any]] = {"pod_name": "payment-service"}
 
 
 @app.get("/health", tags=["health"])
@@ -46,17 +69,9 @@ async def health_check():
         "service": "runbook-runner",
         "mode": "langgraph-mcp-fastapi",
         "dry_run": os.getenv("K8S_DRY_RUN", "false").lower() in ("true", "1", "yes"),
+        "auth_enabled": bool(RUNNER_API_KEY),
         "catalog_size": len(catalog.list_runbooks())
     }
-
-
-from mcp_client import mcp_client
-
-
-class MCPToolCall(BaseModel):
-    server: str = "kubernetes"
-    tool_name: str = "get_pod_status"
-    arguments: Optional[Dict[str, Any]] = {"pod_name": "payment-service"}
 
 
 @app.get("/runbooks", tags=["catalog"])
@@ -74,14 +89,14 @@ async def list_mcp_tools():
     return {
         "mcp_servers": {
             "kubernetes": [
-                {"name": "get_pod_logs", "description": "Retrieve stdout/stderr logs from a pod", "args": ["pod_name", "namespace"]},
+                {"name": "get_pod_logs", "description": "Retrieve stdout/stderr logs from pods matching a deployment name", "args": ["pod_name", "namespace", "previous"]},
                 {"name": "rollout_restart", "description": "Trigger rolling restart of a deployment", "args": ["deployment", "namespace"]},
                 {"name": "rollout_undo", "description": "Roll back deployment to previous revision", "args": ["deployment", "namespace"]},
                 {"name": "scale_deployment", "description": "Scale deployment to target replicas", "args": ["deployment", "replicas", "namespace"]},
-                {"name": "get_pod_status", "description": "Check pod status and readiness probes", "args": ["pod_name", "namespace"]}
+                {"name": "get_pod_status", "description": "Check pod status and readiness probes (aggregated across all pods)", "args": ["pod_name", "namespace"]}
             ],
             "jira": [
-                {"name": "create_ticket", "description": "Create an incident ticket in Jira", "args": ["summary", "description", "issue_type", "priority"]},
+                {"name": "create_ticket", "description": "Create an incident ticket in Jira", "args": ["title", "description", "project_key", "issue_type"]},
                 {"name": "get_ticket_status", "description": "Retrieve Jira ticket status by key", "args": ["ticket_key"]}
             ]
         }
@@ -89,8 +104,9 @@ async def list_mcp_tools():
 
 
 @app.post("/mcp/tools/call", tags=["mcp-testing"])
-async def call_mcp_tool(request: MCPToolCall):
+async def call_mcp_tool(request: MCPToolCall, x_api_key: Optional[str] = Header(None)):
     """Interactively execute any FastMCP tool on Kubernetes or Jira servers over stdio."""
+    _check_api_key(x_api_key)
     try:
         res = await mcp_client.call_tool(
             server=request.server,
@@ -107,7 +123,123 @@ async def call_mcp_tool(request: MCPToolCall):
         raise HTTPException(status_code=500, detail=f"MCP Tool Execution Error: {exc}")
 
 
-from fastapi.responses import HTMLResponse
+async def _run_agent_background(incident_id: str, alert: AlertPayload):
+    """Background task that runs the full LangGraph agent pipeline."""
+    try:
+        incident_details = alert.payload or {}
+        if alert.alert_name:
+            incident_details["alert_name"] = alert.alert_name
+
+        result = await run_runbook_agent(
+            event_type=alert.event_type,
+            service=alert.service,
+            runbook_id=alert.runbook_id,
+            incident_details=incident_details
+        )
+
+        _incident_store[incident_id] = {
+            "incident_id": incident_id,
+            "status": result.get("status"),
+            "event_type": alert.event_type,
+            "service": alert.service,
+            "runbook_id": result.get("runbook_id"),
+            "actions_executed": result.get("actions_executed", []),
+            "verification_result": result.get("verification_result"),
+            "attempts": result.get("attempts"),
+            "recovery_confirmed": result.get("recovery_confirmed"),
+            "escalation_required": result.get("escalation_required"),
+            "jira_ticket": result.get("jira_ticket"),
+            "completed_at": time.time()
+        }
+        logger.info(f"RUNNER_SERVICE: Incident {incident_id} completed with status={result.get('status')}")
+    except Exception as exc:
+        _incident_store[incident_id] = {
+            "incident_id": incident_id,
+            "status": "error",
+            "error": str(exc),
+            "completed_at": time.time()
+        }
+        logger.error(f"RUNNER_SERVICE_ERROR: Incident {incident_id} failed: {exc}", exc_info=True)
+
+
+@app.post("/execute", tags=["execution"])
+async def execute_runbook(alert: AlertPayload, x_api_key: Optional[str] = Header(None)):
+    """
+    Ingest alert payload and launch LangGraph agent pipeline asynchronously.
+    Returns 200 with immediate result for backward compatibility (synchronous mode).
+    Set ASYNC_EXECUTE=true to return 202 Accepted with incident_id for status polling.
+    """
+    _check_api_key(x_api_key)
+
+    # Generate incident ID for tracking and idempotency
+    incident_id = alert.alert_id or f"incident-{alert.service}-{int(time.time())}"
+
+    # Idempotency: if this incident_id is already being processed, return existing result
+    if incident_id in _incident_store:
+        existing = _incident_store[incident_id]
+        return {
+            "statusCode": 200,
+            "incident_id": incident_id,
+            "deduplicated": True,
+            **existing
+        }
+
+    logger.info(f"RUNNER_SERVICE: Processing alert event '{alert.event_type}' for service '{alert.service}' (incident_id={incident_id})")
+
+    async_mode = os.getenv("ASYNC_EXECUTE", "false").lower() in ("true", "1", "yes")
+
+    if async_mode:
+        # Async mode: fire-and-forget, return 202 immediately
+        _incident_store[incident_id] = {"incident_id": incident_id, "status": "processing"}
+        asyncio.create_task(_run_agent_background(incident_id, alert))
+        return {
+            "statusCode": 202,
+            "incident_id": incident_id,
+            "status": "accepted",
+            "message": f"Incident {incident_id} accepted for async processing. Poll GET /execute/{incident_id}/status for results."
+        }
+
+    # Synchronous mode (default): wait for completion
+    incident_details = alert.payload or {}
+    if alert.alert_name:
+        incident_details["alert_name"] = alert.alert_name
+
+    try:
+        result = await run_runbook_agent(
+            event_type=alert.event_type,
+            service=alert.service,
+            runbook_id=alert.runbook_id,
+            incident_details=incident_details
+        )
+
+        response = {
+            "statusCode": 200,
+            "incident_id": incident_id,
+            "status": result.get("status"),
+            "event_type": alert.event_type,
+            "service": alert.service,
+            "runbook_id": result.get("runbook_id"),
+            "actions_executed": result.get("actions_executed", []),
+            "verification_result": result.get("verification_result"),
+            "attempts": result.get("attempts"),
+            "recovery_confirmed": result.get("recovery_confirmed"),
+            "escalation_required": result.get("escalation_required"),
+            "jira_ticket": result.get("jira_ticket"),
+            "result_summary": result
+        }
+        _incident_store[incident_id] = response
+        return response
+    except Exception as exc:
+        logger.error(f"RUNNER_SERVICE_ERROR: {exc}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.get("/execute/{incident_id}/status", tags=["execution"])
+async def get_incident_status(incident_id: str):
+    """Poll the status of an async incident execution."""
+    if incident_id not in _incident_store:
+        raise HTTPException(status_code=404, detail=f"Incident {incident_id} not found.")
+    return _incident_store[incident_id]
 
 
 @app.get("/mcp-ui", response_class=HTMLResponse, tags=["mcp-testing"])
@@ -259,7 +391,7 @@ async def mcp_inspector_ui():
 
             <div>
                 <label for="arguments">JSON Tool Arguments</label>
-                <textarea id="arguments" rows="6">{\n  "pod_name": "payment-service"\n}</textarea>
+                <textarea id="arguments" rows="6">{\\n  "pod_name": "payment-service"\\n}</textarea>
             </div>
 
             <button class="btn-submit" onclick="executeMCPTool()">
@@ -368,45 +500,6 @@ async def mcp_inspector_ui():
 </body>
 </html>"""
     return HTMLResponse(content=html_content)
-
-
-@app.post("/execute", tags=["execution"])
-async def execute_runbook(alert: AlertPayload):
-    """
-    Ingest alert payload, perform LLM classification (if runbook_id is not specified),
-    execute LangGraph state machine, perform MCP tool actions, verify recovery, and return execution report.
-    """
-    logger.info(f"RUNNER_SERVICE: Processing alert event '{alert.event_type}' for service '{alert.service}'")
-
-    incident_details = alert.payload or {}
-    if alert.alert_name:
-        incident_details["alert_name"] = alert.alert_name
-
-    try:
-        result = await run_runbook_agent(
-            event_type=alert.event_type,
-            service=alert.service,
-            runbook_id=alert.runbook_id,
-            incident_details=incident_details
-        )
-
-        return {
-            "statusCode": 200,
-            "status": result.get("status"),
-            "event_type": alert.event_type,
-            "service": alert.service,
-            "runbook_id": result.get("runbook_id"),
-            "actions_executed": result.get("actions_executed", []),
-            "verification_result": result.get("verification_result"),
-            "attempts": result.get("attempts"),
-            "recovery_confirmed": result.get("recovery_confirmed"),
-            "escalation_required": result.get("escalation_required"),
-            "jira_ticket": result.get("jira_ticket"),
-            "result_summary": result
-        }
-    except Exception as exc:
-        logger.error(f"RUNNER_SERVICE_ERROR: {exc}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(exc))
 
 
 if __name__ == "__main__":

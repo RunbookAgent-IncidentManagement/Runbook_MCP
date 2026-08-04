@@ -123,7 +123,7 @@ async def execute_remediation(state: RunbookState) -> RunbookState:
 
 
 async def verify_recovery(state: RunbookState) -> RunbookState:
-    """Node: Verify real pod health status through Kubernetes MCP tool."""
+    """Node: Verify real pod health status through Kubernetes MCP tool with polling."""
     service = state.get("service", "unknown")
     spec = state.get("runbook_spec", {})
 
@@ -142,15 +142,23 @@ async def verify_recovery(state: RunbookState) -> RunbookState:
         else:
             args[k] = v
 
-    # Wait 5 seconds to allow K3s pod rollout to initialize and complete probes
-    await asyncio.sleep(5)
+    # Poll for health with backoff instead of fixed sleep
+    max_wait = int(os.getenv("VERIFY_TIMEOUT_SECONDS", "30"))
+    poll_interval = 3
+    elapsed = 0
+    is_healthy = False
+    verify_res = {}
 
-    logger.info(f"NODE verify_recovery: Invoking {server}.{tool_name} with {args}")
-    verify_res = await mcp_client.call_tool(server, tool_name, args)
+    while elapsed < max_wait:
+        await asyncio.sleep(poll_interval)
+        elapsed += poll_interval
 
-    is_dry_run = os.getenv("K8S_DRY_RUN", "false").lower() in ("true", "1", "yes")
-    # In live mode (dry_run=false), healthy strictly requires healthy == True
-    is_healthy = bool(verify_res.get("healthy", False)) if not is_dry_run else True
+        logger.info(f"NODE verify_recovery: Polling {server}.{tool_name} with {args} (elapsed {elapsed}s/{max_wait}s)")
+        verify_res = await mcp_client.call_tool(server, tool_name, args)
+        is_healthy = bool(verify_res.get("healthy", False))
+
+        if is_healthy:
+            break
 
     state["verification_result"] = is_healthy
 
@@ -158,11 +166,11 @@ async def verify_recovery(state: RunbookState) -> RunbookState:
         state["recovery_confirmed"] = True
         state["escalation_required"] = False
         state["status"] = "completed"
-        logger.info(f"NODE verify_recovery: Target {service} verified HEALTHY.")
+        logger.info(f"NODE verify_recovery: Target {service} verified HEALTHY after {elapsed}s.")
     else:
         state["recovery_confirmed"] = False
         state["status"] = "verifying_failed"
-        logger.warning(f"NODE verify_recovery: Target {service} verification FAILED (Attempt {state['attempts']}/{state['max_attempts']}).")
+        logger.warning(f"NODE verify_recovery: Target {service} verification FAILED after {elapsed}s (Attempt {state['attempts']}/{state['max_attempts']}).")
 
     return state
 

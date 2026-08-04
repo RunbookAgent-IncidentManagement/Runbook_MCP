@@ -60,13 +60,13 @@ runbooks:
     name: "Scale Service"
     category: "HIGH_CPU"
     severity: "P3"
-    description: "Scales deployment to 6 replicas to handle CPU/memory saturation."
+    description: "Scales deployment to 3 replicas to handle CPU/memory saturation."
     tool_call:
       server: "kubernetes"
       name: "scale_deployment"
       arguments:
         deployment: "{service}"
-        replicas: 6
+        replicas: 3
     verification:
       tool_call:
         server: "kubernetes"
@@ -75,6 +75,7 @@ runbooks:
           pod_name: "{service}"
       expected_healthy: true
     max_attempts: 2
+    fallback_runbook: "RB-001"
     escalation:
       server: "jira"
       name: "create_ticket"

@@ -20,7 +20,7 @@ spec:
       containers:
       - name: api
         image: secretpower/payment-rba:v1
-        imagePullPolicy: Never
+        imagePullPolicy: IfNotPresent
         command: ["sh", "-c", "echo 'Simulating fatal application crash...' && exit 1"]
         ports:
         - containerPort: 8000

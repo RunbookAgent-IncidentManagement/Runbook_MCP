@@ -10,11 +10,9 @@ cd "${PROJECT_ROOT}"
 
 echo "🛑 Stopping E-Commerce RunBook Agent System..."
 
-# 1. Kill background Python FastMCP servers & FastAPI runner processes
-echo "🧹 Stopping Python agent processes (FastMCP stdio & FastAPI Runner)..."
-pkill -f "kubernetes_mcp_server" || true
-pkill -f "jira_mcp_server" || true
-pkill -f "services/runbook-runner" || true
+# 1. Kill background Python FastAPI runner processes
+echo "🧹 Stopping Python agent processes (FastAPI Runner)..."
+pkill -f "main.py" || true
 pkill -f "uvicorn" || true
 
 # 2. Stop Docker Compose PostgreSQL & Redis
@@ -25,8 +23,12 @@ elif docker compose version &> /dev/null 2>&1; then
   docker compose down || true
 fi
 
-# 3. Scale down Kubernetes deployments to 0 (frees CPU and memory)
-echo "☸️ Scaling down Kubernetes deployments to 0 in 'ecommerce' namespace..."
-kubectl scale deployment --all -n ecommerce --replicas=0 2>/dev/null || true
+# 3. Scale down app service deployments to 0 (frees CPU and memory)
+# Exclude postgres and redis so they start correctly on next setup run
+echo "☸️ Scaling down app service deployments to 0 in 'ecommerce' namespace..."
+for deploy in cart-service order-service payment-service product-service notification-service auth-service frontend; do
+  kubectl scale deployment "$deploy" -n ecommerce --replicas=0 2>/dev/null || true
+done
 
 echo "✅ Environment Stopped Successfully! You can now turn off your EC2 instance."
+echo "   Note: postgres and redis deployments are left running for next startup."

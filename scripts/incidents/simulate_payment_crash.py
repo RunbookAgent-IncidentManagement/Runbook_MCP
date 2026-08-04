@@ -25,7 +25,7 @@ def simulate_payment_crash():
     }
 
     try:
-        resp = requests.post(RUNBOOK_RUNNER_URL, json=payload, timeout=10)
+        resp = requests.post(RUNBOOK_RUNNER_URL, json=payload, timeout=120)
         print(f"[INCIDENT] Alert sent. Runbook Runner response (HTTP {resp.status_code}):")
         print(resp.json())
     except Exception as exc:

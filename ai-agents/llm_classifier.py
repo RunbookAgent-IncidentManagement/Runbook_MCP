@@ -117,8 +117,30 @@ class HuggingFaceMistralClassifier:
         return {}
 
     def _keyword_fallback(self, service: str, event_type: str, logs: list, k8s_events: list, metrics: dict) -> dict:
-        combined_signals = (event_type + " " + " ".join(logs) + " " + " ".join(k8s_events)).lower()
+        combined_signals = (" ".join(logs) + " " + " ".join(k8s_events)).lower()
+        et = event_type.lower()
 
+        # Priority 1: Event type takes precedence over log content
+        if "crashloop" in et or "pod_failure" in et or "liveness" in et:
+            return {
+                "runbook_id": "RB-001",
+                "category": "POD_FAILURE",
+                "severity": "P1",
+                "confidence": 0.95,
+                "reasoning": "Detected pod crash loop / probe failure via event type.",
+                "source": "rule_engine"
+            }
+        if "deployment" in et or "rollback" in et or "undo" in et:
+            return {
+                "runbook_id": "RB-002",
+                "category": "DEPLOYMENT_FAILURE",
+                "severity": "P2",
+                "confidence": 0.90,
+                "reasoning": "Detected deployment revision error via event type.",
+                "source": "rule_engine"
+            }
+
+        # Priority 2: Log/event content analysis
         if "oomkilled" in combined_signals or "outofmemory" in combined_signals:
             return {
                 "runbook_id": "RB-003",
@@ -143,7 +165,7 @@ class HuggingFaceMistralClassifier:
                 "category": "POD_FAILURE",
                 "severity": "P1",
                 "confidence": 0.95,
-                "reasoning": "Detected pod crash loop / probe failure.",
+                "reasoning": "Detected pod crash loop / probe failure in logs.",
                 "source": "rule_engine"
             }
         elif "deployment" in combined_signals or "undo" in combined_signals or "rollback" in combined_signals:
@@ -152,7 +174,7 @@ class HuggingFaceMistralClassifier:
                 "category": "DEPLOYMENT_FAILURE",
                 "severity": "P2",
                 "confidence": 0.90,
-                "reasoning": "Detected deployment revision error.",
+                "reasoning": "Detected deployment revision error in logs.",
                 "source": "rule_engine"
             }
         elif "cpu" in combined_signals or "memory" in combined_signals or metrics.get("cpu_percent", 0) > 80:

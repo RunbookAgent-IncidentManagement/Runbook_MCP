@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
 Catalog Parser Module
-Parses Markdown documentation (`runbook_catalog.md`) and declarative YAML specifications (`runbook_actions.yaml`).
+Parses declarative YAML specifications (`runbook_actions.yaml`) for runbook definitions.
+Falls back to an embedded catalog when pyyaml is not installed.
 """
 import os
 import json
 from typing import Dict, Any, Optional
 
 YAML_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "runbooks", "runbook_actions.yaml"))
-MARKDOWN_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "langgraph", "runbook_catalog.md"))
 
 
 class RunbookCatalog:
@@ -30,7 +30,7 @@ class RunbookCatalog:
         except ImportError:
             pass
 
-        # Fallback catalog if pyyaml is not installed
+        # Fallback catalog if pyyaml is not installed (kept in sync with runbook_actions.yaml)
         self._catalog = self._get_fallback_catalog()
 
     def get_runbook(self, runbook_id: str) -> Optional[Dict[str, Any]]:
@@ -69,11 +69,12 @@ class RunbookCatalog:
                 "name": "Scale Service",
                 "category": "HIGH_CPU",
                 "severity": "P3",
-                "description": "Scales deployment to 6 replicas to handle CPU/memory saturation.",
-                "tool_call": {"server": "kubernetes", "name": "scale_deployment", "arguments": {"deployment": "{service}", "replicas": 6}},
+                "description": "Scales deployment to 3 replicas to handle CPU/memory saturation.",
+                "tool_call": {"server": "kubernetes", "name": "scale_deployment", "arguments": {"deployment": "{service}", "replicas": 3}},
                 "verification": {"tool_call": {"server": "kubernetes", "name": "get_pod_status", "arguments": {"pod_name": "{service}"}}, "expected_healthy": True},
                 "max_attempts": 2,
-                "escalation": {"server": "jira", "name": "create_ticket", "arguments": {"title": "P3 Alert: {service} Scale Out Unsuccessful", "description": "Scaling service {service} to 6 replicas failed to resolve resource contention."}}
+                "fallback_runbook": "RB-001",
+                "escalation": {"server": "jira", "name": "create_ticket", "arguments": {"title": "P3 Alert: {service} Scale Out Unsuccessful", "description": "Scaling service {service} to 3 replicas failed to resolve resource contention."}}
             },
             "RB-004": {
                 "id": "RB-004",

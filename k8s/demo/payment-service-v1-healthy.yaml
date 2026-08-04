@@ -20,7 +20,7 @@ spec:
       containers:
       - name: api
         image: secretpower/payment-rba:v1
-        imagePullPolicy: Never
+        imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8000
         resources:

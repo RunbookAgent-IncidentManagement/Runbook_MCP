@@ -35,19 +35,39 @@ except ImportError:
 
 mcp = FastMCP("kubernetes-mcp-server")
 
-DRY_RUN = os.getenv("K8S_DRY_RUN", "false").lower() in ("true", "1", "yes")
 DEFAULT_NAMESPACE = os.getenv("K8S_NAMESPACE", "ecommerce")
 
 
+def _is_dry_run() -> bool:
+    """Read DRY_RUN at call time so env changes are reflected immediately."""
+    return os.getenv("K8S_DRY_RUN", "false").lower() in ("true", "1", "yes")
+
+
+def _is_force_unhealthy() -> bool:
+    """Check if FORCE_UNHEALTHY simulation flag is active."""
+    return os.getenv("FORCE_UNHEALTHY", "false").lower() in ("true", "1", "yes")
+
+
 @mcp.tool()
-def get_pod_logs(pod_name: str, namespace: str = DEFAULT_NAMESPACE) -> str:
-    """Retrieve stdout/stderr logs from a specified Kubernetes pod."""
-    if DRY_RUN:
+def get_pod_logs(pod_name: str, namespace: str = DEFAULT_NAMESPACE, previous: bool = False) -> str:
+    """Retrieve stdout/stderr logs from pods matching a deployment name. Set previous=True for crashed container logs."""
+    if _is_dry_run():
         return f"[DRY_RUN] Logs for pod {pod_name} in namespace {namespace}:\njava.lang.OutOfMemoryError: Metaspace\nConnection refused to database: postgres:5432"
 
-    cmd = ["kubectl", "logs", pod_name, "-n", namespace]
+    # Find actual pod name via label selector (pod names have hash suffixes)
+    find_cmd = ["kubectl", "get", "pods", "-n", namespace, "-l", f"app={pod_name}",
+                "-o", "jsonpath={.items[0].metadata.name}"]
     try:
-        res = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        find_res = subprocess.run(find_cmd, capture_output=True, text=True, timeout=10)
+        actual_pod = find_res.stdout.strip()
+        if not actual_pod:
+            return json.dumps({"status": "error", "message": f"No pods found matching label app={pod_name}"})
+
+        log_cmd = ["kubectl", "logs", actual_pod, "-n", namespace, "--tail=100"]
+        if previous:
+            log_cmd.append("--previous")
+
+        res = subprocess.run(log_cmd, capture_output=True, text=True, timeout=15)
         return res.stdout or res.stderr or "No log output available."
     except Exception as exc:
         return f"Error executing kubectl logs: {exc}"
@@ -56,7 +76,7 @@ def get_pod_logs(pod_name: str, namespace: str = DEFAULT_NAMESPACE) -> str:
 @mcp.tool()
 def rollout_restart(deployment: str, namespace: str = DEFAULT_NAMESPACE) -> str:
     """Trigger a rolling restart of a Kubernetes deployment."""
-    if DRY_RUN:
+    if _is_dry_run():
         return json.dumps({
             "status": "success",
             "action": "rollout_restart",
@@ -84,14 +104,14 @@ def rollout_restart(deployment: str, namespace: str = DEFAULT_NAMESPACE) -> str:
 @mcp.tool()
 def rollout_undo(deployment: str, namespace: str = DEFAULT_NAMESPACE) -> str:
     """Roll back a Kubernetes deployment to its previous stable revision."""
-    if DRY_RUN:
+    if _is_dry_run():
         return json.dumps({
             "status": "success",
             "action": "rollout_undo",
             "deployment": deployment,
             "namespace": namespace,
             "dry_run": True,
-            "message": f"Deployment {deployment} rolled back to revision 1 in dry-run mode."
+            "message": f"Deployment {deployment} rolled back to previous revision in dry-run mode."
         })
 
     cmd = ["kubectl", "rollout", "undo", f"deployment/{deployment}", "-n", namespace]
@@ -112,7 +132,7 @@ def rollout_undo(deployment: str, namespace: str = DEFAULT_NAMESPACE) -> str:
 @mcp.tool()
 def scale_deployment(deployment: str, replicas: int = 4, namespace: str = DEFAULT_NAMESPACE) -> str:
     """Scale a Kubernetes deployment to the specified number of replicas."""
-    if DRY_RUN:
+    if _is_dry_run():
         return json.dumps({
             "status": "success",
             "action": "scale_deployment",
@@ -140,9 +160,9 @@ def scale_deployment(deployment: str, replicas: int = 4, namespace: str = DEFAUL
 
 @mcp.tool()
 def get_pod_status(pod_name: str, namespace: str = DEFAULT_NAMESPACE) -> str:
-    """Check the health status and readiness probes of pods matching a deployment/pod name."""
-    force_fail = os.getenv("FORCE_UNHEALTHY", "false").lower() in ("true", "1", "yes") or any(k in pod_name.lower() for k in ["broken", "unhealthy", "fail"])
-    if DRY_RUN:
+    """Check the health status and readiness probes of all pods matching a deployment/pod name."""
+    force_fail = _is_force_unhealthy() or any(k in pod_name.lower() for k in ["broken", "unhealthy", "fail"])
+    if _is_dry_run():
         return json.dumps({
             "status": "CrashLoopBackOff" if force_fail else "Running",
             "healthy": not force_fail,
@@ -159,19 +179,45 @@ def get_pod_status(pod_name: str, namespace: str = DEFAULT_NAMESPACE) -> str:
         if res.returncode == 0 and res.stdout.strip():
             data = json.loads(res.stdout)
             items = data.get("items", [])
-            if items:
-                pod = items[0]
+
+            # Filter out terminating pods
+            active_pods = [p for p in items if p.get("metadata", {}).get("deletionTimestamp") is None]
+            if not active_pods:
+                return json.dumps({"status": "NotFound", "healthy": False, "pod": pod_name})
+
+            # Aggregate health across all active pods
+            all_healthy = True
+            total_restarts = 0
+            pod_summaries = []
+
+            for pod in active_pods:
                 phase = pod.get("status", {}).get("phase", "Unknown")
                 container_statuses = pod.get("status", {}).get("containerStatuses", [])
                 ready = all(cs.get("ready", False) for cs in container_statuses) if container_statuses else False
                 restarts = sum(cs.get("restartCount", 0) for cs in container_statuses) if container_statuses else 0
-                return json.dumps({
-                    "status": phase,
-                    "healthy": phase == "Running" and ready,
-                    "pod": pod.get("metadata", {}).get("name"),
+                total_restarts += restarts
+
+                pod_healthy = phase == "Running" and ready
+                if not pod_healthy:
+                    all_healthy = False
+
+                pod_summaries.append({
+                    "name": pod.get("metadata", {}).get("name"),
+                    "phase": phase,
                     "ready": ready,
-                    "restarts": restarts
+                    "restarts": restarts,
+                    "healthy": pod_healthy
                 })
+
+            return json.dumps({
+                "status": active_pods[0].get("status", {}).get("phase", "Unknown"),
+                "healthy": all_healthy,
+                "pod": pod_name,
+                "namespace": namespace,
+                "total_pods": len(active_pods),
+                "total_restarts": total_restarts,
+                "pods": pod_summaries
+            })
         return json.dumps({"status": "NotFound", "healthy": False, "pod": pod_name})
     except Exception as exc:
         return json.dumps({"status": "Error", "healthy": False, "message": str(exc)})
