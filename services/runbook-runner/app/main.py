@@ -186,7 +186,7 @@ async def execute_runbook(alert: AlertPayload, x_api_key: Optional[str] = Header
 
     logger.info(f"RUNNER_SERVICE: Processing alert event '{alert.event_type}' for service '{alert.service}' (incident_id={incident_id})")
 
-    async_mode = os.getenv("ASYNC_EXECUTE", "false").lower() in ("true", "1", "yes")
+    async_mode = os.getenv("ASYNC_EXECUTE", "true").lower() in ("true", "1", "yes")
 
     if async_mode:
         # Async mode: fire-and-forget, return 202 immediately

@@ -25,9 +25,28 @@ def simulate_payment_crash():
     }
 
     try:
-        resp = requests.post(RUNBOOK_RUNNER_URL, json=payload, timeout=120)
+        resp = requests.post(RUNBOOK_RUNNER_URL, json=payload, timeout=15)
         print(f"[INCIDENT] Alert sent. Runbook Runner response (HTTP {resp.status_code}):")
-        print(resp.json())
+        res_data = resp.json()
+        print(json.dumps(res_data, indent=2))
+
+        # If asynchronous processing (HTTP 202), poll status endpoint until completion
+        if resp.status_code == 202 or res_data.get("statusCode") == 202:
+            incident_id = res_data.get("incident_id")
+            status_url = f"http://localhost:8000/execute/{incident_id}/status"
+            print(f"\n[INCIDENT] Polling execution status at {status_url}...")
+
+            for _ in range(60):
+                time.sleep(2)
+                st_resp = requests.get(status_url, timeout=10)
+                if st_resp.status_code == 200:
+                    st_data = st_resp.json()
+                    st = st_data.get("status")
+                    print(f"   --> Current Status: {st} (Attempts: {st_data.get('attempts', 0)})")
+                    if st in ("completed", "escalated", "error"):
+                        print("\n[INCIDENT] Final Workflow Result:")
+                        print(json.dumps(st_data, indent=2))
+                        break
     except Exception as exc:
         print(f"[INCIDENT] Could not reach Runbook Runner at {RUNBOOK_RUNNER_URL}: {exc}")
 
