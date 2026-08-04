@@ -95,7 +95,7 @@ for deploy in cart-service order-service payment-service product-service notific
     echo "  --> Setting deployment/$deploy image to $image_tag..."
     kubectl set image deployment/$deploy api=$image_tag -n ecommerce 2>/dev/null || true
     kubectl scale deployment $deploy -n ecommerce --replicas=1 2>/dev/null || true
-    kubectl set resources deployment $deploy -n ecommerce -c=api --requests=memory=64Mi,cpu=50m --limits=memory=256Mi,cpu=250m 2>/dev/null || true
+    kubectl set resources deployment $deploy -n ecommerce -c=api --requests=memory=64Mi,cpu=50m --limits=memory=512Mi,cpu=250m 2>/dev/null || true
     kubectl patch deployment $deploy -n ecommerce -p '{"spec":{"template":{"spec":{"containers":[{"name":"api","imagePullPolicy":"IfNotPresent"}]}}}}' 2>/dev/null || true
   fi
 done
