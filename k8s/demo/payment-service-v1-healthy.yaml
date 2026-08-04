@@ -23,6 +23,12 @@ spec:
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 8000
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: db-secret
+              key: database_url
         resources:
           requests:
             memory: "64Mi"
@@ -34,5 +40,20 @@ spec:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 2
+          initialDelaySeconds: 5
           periodSeconds: 5
+          timeoutSeconds: 5
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 10
+          periodSeconds: 10
+          timeoutSeconds: 5
+        volumeMounts:
+        - name: shared-code-volume
+          mountPath: /app/backend/shared
+      volumes:
+      - name: shared-code-volume
+        configMap:
+          name: shared-code

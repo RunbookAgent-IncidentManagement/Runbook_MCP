@@ -24,10 +24,23 @@ spec:
         command: ["sh", "-c", "echo 'Simulating fatal application crash...' && exit 1"]
         ports:
         - containerPort: 8000
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: db-secret
+              key: database_url
         resources:
           requests:
             memory: "64Mi"
             cpu: "50m"
           limits:
-            memory: "256Mi"
+            memory: "512Mi"
             cpu: "250m"
+        volumeMounts:
+        - name: shared-code-volume
+          mountPath: /app/backend/shared
+      volumes:
+      - name: shared-code-volume
+        configMap:
+          name: shared-code
