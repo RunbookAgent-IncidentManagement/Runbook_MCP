@@ -204,7 +204,16 @@ def get_pod_status(pod_name: str, namespace: str = DEFAULT_NAMESPACE) -> str:
                 restarts = sum(cs.get("restartCount", 0) for cs in container_statuses) if container_statuses else 0
                 total_restarts += restarts
 
-                pod_healthy = phase == "Running" and ready
+                # Check if any container is in waiting state (CrashLoopBackOff, Error, OOMKilled)
+                has_waiting_error = False
+                for cs in container_statuses:
+                    waiting = cs.get("state", {}).get("waiting", {})
+                    reason = waiting.get("reason", "")
+                    if reason in ("CrashLoopBackOff", "OOMKilled", "Error", "ImagePullBackOff", "ErrImagePull"):
+                        has_waiting_error = True
+                        break
+
+                pod_healthy = phase == "Running" and ready and not has_waiting_error
                 if not pod_healthy:
                     all_healthy = False
 

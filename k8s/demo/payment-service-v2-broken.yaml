@@ -37,6 +37,13 @@ spec:
           limits:
             memory: "512Mi"
             cpu: "250m"
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 2
+          periodSeconds: 3
+          timeoutSeconds: 2
         volumeMounts:
         - name: shared-code-volume
           mountPath: /app/backend/shared
