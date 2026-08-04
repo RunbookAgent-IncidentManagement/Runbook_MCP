@@ -11,11 +11,18 @@ import urllib.request
 import urllib.error
 
 try:
+    import mcp.types
+    if not hasattr(mcp.types, "TASK_STATUS_COMPLETED"):
+        setattr(mcp.types, "TASK_STATUS_COMPLETED", "completed")
+except Exception:
+    pass
+
+try:
     from fastmcp import FastMCP
-except ImportError:
+except Exception:
     try:
         from mcp.server.fastmcp import FastMCP
-    except ImportError:
+    except Exception:
         try:
             from mcp.server import FastMCP
         except ImportError as err:

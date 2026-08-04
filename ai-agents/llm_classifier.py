@@ -59,8 +59,11 @@ class HuggingFaceMistralClassifier:
         k8s_events = k8s_events or []
         metrics = metrics or {}
 
+        enable_rule_fallback = os.getenv("ENABLE_RULE_FALLBACK", "false").lower() in ("true", "1", "yes")
+
         token = os.getenv("HUGGINGFACE_TOKEN", self.token)
-        # Skip HTTP call immediately if no valid token is provided to prevent timeout delays
+
+        # 1. Attempt LLM API Inference if token is available
         if token and not token.startswith("hf_demo") and token != "hf_demo_token_here":
             prompt = CLASSIFIER_PROMPT_TEMPLATE.format(
                 service=service,
@@ -101,9 +104,23 @@ class HuggingFaceMistralClassifier:
                         parsed["source"] = "mistral_llm"
                         return parsed
             except Exception as exc:
-                logger.warning(f"LLM Inference API call skipped/failed: {exc}. Falling back to rule-based classification.")
+                logger.error(f"LLM Inference API call failed: {exc}")
+                if not enable_rule_fallback:
+                    return {
+                        "status": "error",
+                        "error": f"LLM classification failed: {exc}",
+                        "source": "mistral_llm_error"
+                    }
 
-        # 2. Deterministic Rule-Based Fallback Classifier
+        if not enable_rule_fallback:
+            logger.warning("No HUGGINGFACE_TOKEN provided and ENABLE_RULE_FALLBACK=false. Returning LLM missing token response.")
+            return {
+                "status": "error",
+                "error": "HUGGINGFACE_TOKEN is required for LLM classification (ENABLE_RULE_FALLBACK=false)",
+                "source": "mistral_llm_missing_token"
+            }
+
+        # 2. Deterministic Rule-Based Fallback Classifier (Only when ENABLE_RULE_FALLBACK=true)
         return self._keyword_fallback(service, event_type, logs, k8s_events, metrics)
 
     def _extract_json(self, text: str) -> dict:

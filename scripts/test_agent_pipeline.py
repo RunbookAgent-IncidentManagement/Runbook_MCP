@@ -32,9 +32,10 @@ async def run_pipeline_test():
 
     # Enable K8S_DRY_RUN for offline test environment
     os.environ["K8S_DRY_RUN"] = "true"
+    os.environ["ENABLE_RULE_FALLBACK"] = "true"
     # Use short polling for tests (3s × 1 poll = 3s instead of 30s)
     os.environ["VERIFY_TIMEOUT_SECONDS"] = "3"
-    print(f"Environment: K8S_DRY_RUN=true, VERIFY_TIMEOUT_SECONDS=3")
+    print(f"Environment: K8S_DRY_RUN=true, ENABLE_RULE_FALLBACK=true, VERIFY_TIMEOUT_SECONDS=3")
 
     passed = 0
     failed = 0
